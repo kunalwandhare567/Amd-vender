@@ -1,0 +1,5 @@
+Verifying database content...
+Suppliers count: 3
+Alerts count: 5
+Sample Supplier: Alpha Components Ltd.
+Sample Alert: Critical Alert: 30% increase in lead time delays for component X over the past week. Potential impact on production line Y.

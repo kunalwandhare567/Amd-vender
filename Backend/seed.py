@@ -3,6 +3,8 @@ Seed script:
 1. Read Kaggle CSV → insert raw supplier data
 2. Call AI to evaluate overall_score, risk_level, otd_percentage per supplier
 3. Seed alerts, SLA metrics, interventions
+
+Database: Supabase PostgreSQL (configured via DATABASE_URL in Backend/.env)
 """
 import os
 import json
@@ -16,8 +18,8 @@ from seed_data.alerts import get_realistic_alerts
 from seed_data.sla import generate_sla_metrics
 from seed_data.interventions import generate_interventions
 
-# Load env for Azure OpenAI keys
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"), override=True)
+# Load env for LLM API keys (same directory as this script)
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 
 def ai_evaluate_suppliers(suppliers: list[Supplier]) -> None:

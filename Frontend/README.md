@@ -38,7 +38,7 @@
 | **AI / LLM**  | Azure AI (DeepSeek-V3.1), LangGraph, LangChain                        |
 | **Embeddings**| Azure Cognitive Services (`text-embedding-3-large`)                    |
 | **Vector DB** | ChromaDB                                                               |
-| **Database**  | PostgreSQL (via SQLModel / SQLAlchemy)                                 |
+| **Database**  | Supabase PostgreSQL (via SQLModel / SQLAlchemy)                        |
 | **Auth**      | JWT (python-jose + passlib/bcrypt)                                     |
 | **Realtime**  | python-socketio / socket.io-client                                     |
 
@@ -69,7 +69,7 @@ Make sure the following are installed **before** proceeding:
 | **Node.js**             | 18+             | [nodejs.org](https://nodejs.org)             |
 | **npm**                 | 9+              | Bundled with Node.js                         |
 | **Python**              | 3.10+           | [python.org](https://python.org)             |
-| **PostgreSQL**          | 14+             | [postgresql.org](https://postgresql.org)     |
+| **Supabase Account**    | Free tier+      | [supabase.com](https://supabase.com)         |
 | **Git**                 | any             | [git-scm.com](https://git-scm.com)          |
 
 > **Azure Credentials Required:** You need an active Azure AI project with:
@@ -147,8 +147,10 @@ AZURE_OPENAI_EMBEDDING_ENDPOINT=https://<your-resource>.cognitiveservices.azure.
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-large
 AZURE_OPENAI_EMBEDDING_API_VERSION=2023-05-15
 
-# ── Database ────────────────────────────────────────────────────────────────
-DATABASE_URL=postgresql://<user>:<password>@localhost:5432/supplier_sentinel
+# ── Database (Supabase) ─────────────────────────────────────────────────────
+# Get this from: Supabase Dashboard → Project Settings → Database → Connection string → URI
+# URL-encode special characters in the password (e.g. @ → %40, # → %23)
+DATABASE_URL=postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres
 ```
 
 > ⚠️ **Never commit `backend/.env` to version control.** It contains secret API keys.
@@ -187,20 +189,16 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-#### PostgreSQL Database Setup
+#### Supabase Database Setup
 
-```sql
--- Connect to PostgreSQL and create the database:
-CREATE DATABASE supplier_sentinel;
-```
+1. Go to [supabase.com](https://supabase.com) and create a new project.
+2. Set a **Database Password** (save it — you'll need it for the connection string).
+3. Once the project is provisioned, go to **Project Settings → Database**.
+4. Copy the **Connection string (URI)** and paste it as `DATABASE_URL` in `backend/.env`.
+5. Replace `[YOUR-PASSWORD]` with the database password you set in step 2.
+6. URL-encode any special characters in the password (e.g., `@` → `%40`, `#` → `%23`).
 
-Or via the command line:
-
-```bash
-psql -U postgres -c "CREATE DATABASE supplier_sentinel;"
-```
-
-Make sure the `DATABASE_URL` in `backend/.env` matches your PostgreSQL credentials.
+The seed script will automatically create all tables on Supabase — no manual SQL needed.
 
 ---
 
@@ -301,7 +299,7 @@ Key endpoint groups:
                ▼
 ┌───────────────────────────────────────┐
 │         FastAPI Backend               │
-│  Routers → SQLModel (PostgreSQL)      │
+│  Routers → SQLModel (Supabase PG)     │
 │  Socket.IO for real-time events       │
 └──────┬────────────────────┬───────────┘
        │  LangGraph Agent   │  RAG Store
@@ -330,9 +328,10 @@ The AI agent is a two-node **LangGraph** graph:
 | `psycopg2` import error | Run `pip install psycopg2-binary` inside the venv |
 | CORS errors in browser | Ensure backend is running on port `8000` and frontend on `5173` / `3000` / `8080` |
 | ChromaDB empty / chat not working | Wait ~10s after backend startup for background RAG ingestion to complete |
-| PostgreSQL auth error | Double-check `DATABASE_URL` in `backend/.env` — username, password, and DB name must match your local Postgres setup |
-| `AZURE_OPENAI_API_KEY` errors | Ensure `backend/.env` exists with valid Azure credentials |
-| Frontend shows no data | Run `python -m backend.seed` from the project root to populate the database |
+| Supabase auth error | Double-check `DATABASE_URL` in `backend/.env` — URL-encode special chars in the password (`@` → `%40`, `#` → `%23`) |
+| `SSL connection` error | Ensure `sslmode=require` is appended to your DATABASE_URL (auto-added by `database.py`) |
+| `AZURE_OPENAI_API_KEY` errors | Ensure `backend/.env` exists with valid API credentials |
+| Frontend shows no data | Run `python -m backend.seed` from the project root to populate the Supabase database |
 | Port already in use | Change the port: `uvicorn backend.main:app --port 8001` (and update the CORS origin + frontend API URL accordingly) |
 
 ---

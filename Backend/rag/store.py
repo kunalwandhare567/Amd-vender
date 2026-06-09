@@ -1,15 +1,15 @@
-from langchain_core.embeddings import Embeddings
-from langchain_chroma import Chroma
-from langchain_core.documents import Document
-from langchain_community.document_loaders import PyPDFLoader, CSVLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sqlmodel import Session, select
+from langchain_core.embeddings import Embeddings  # pyrefly: ignore [missing-import]
+from langchain_chroma import Chroma  # pyrefly: ignore [missing-import]
+from langchain_core.documents import Document  # pyrefly: ignore [missing-import]
+from langchain_community.document_loaders import PyPDFLoader, CSVLoader  # pyrefly: ignore [missing-import]
+from langchain_text_splitters import RecursiveCharacterTextSplitter  # pyrefly: ignore [missing-import]
+from sqlmodel import Session, select  # pyrefly: ignore [missing-import]
 from ..database import engine
 from ..models import Supplier
-from openai import OpenAI
+from openai import OpenAI  # pyrefly: ignore [missing-import]
 import os
 import shutil
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # pyrefly: ignore [missing-import]
 
 load_dotenv(override=True)
 
@@ -89,7 +89,7 @@ def get_vector_store():
     return _vector_store
 
 def ingest_suppliers():
-    """Reads all suppliers from PostgreSQL and indexes them in ChromaDB."""
+    """Reads all suppliers from Supabase PostgreSQL and indexes them in ChromaDB."""
     print("Starting supplier ingestion...")
     vector_store = get_vector_store()
     

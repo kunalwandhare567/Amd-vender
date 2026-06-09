@@ -1,0 +1,30 @@
+# ── Python / Backend ─────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+Backend/.env
+Backend/test_conn.py
+Backend/test_direct.py
+
+# ── Node / Frontend ──────────────────────────
+node_modules/
+dist/
+.env
+*.local
+
+# ── IDE ──────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.sw?
+
+# ── ChromaDB local data ─────────────────────
+Backend/chroma_db/
+backend/chroma_db/
+
+# ── Temp files ───────────────────────────────
+tmp/
+*.log

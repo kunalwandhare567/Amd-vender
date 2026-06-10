@@ -87,3 +87,29 @@ class Intervention(SQLModel, table=True):
     impact_performance_improvement: float
     estimated_duration: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class Incident(SQLModel, table=True):
+    id: str = Field(primary_key=True)
+    type: str  # Weather, Strike, Accident, Natural Disaster
+    location: str
+    severity: str  # Low, Medium, High, Critical
+    start_time: datetime = Field(default_factory=datetime.utcnow)
+    description: str
+    affected_supplier_id: Optional[str] = Field(default=None, foreign_key="supplier.supplier_id")
+    status: str = Field(default="Active")  # Active, Resolved
+    reported_by: str = Field(default="Driver")  # Driver, AI
+
+class RFQ(SQLModel, table=True):
+    id: str = Field(primary_key=True)
+    supplier_id: str = Field(foreign_key="supplier.supplier_id")
+    original_supplier_id: str = Field(foreign_key="supplier.supplier_id")
+    part_sku: str
+    quantity: int
+    target_delivery_days: int
+    delivery_location: str
+    terms_conditions: str
+    status: str = Field(default="Draft")  # Draft, Sent, Bid_Submitted, Approved, Rejected
+    bid_price: Optional[float] = None
+    bid_lead_time: Optional[int] = None
+    bid_comments: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)

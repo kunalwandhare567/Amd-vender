@@ -16,6 +16,11 @@ import IncidentsPage from "./pages/Incidents";
 import SLAMonitor from "./pages/SLAMonitor";
 import Interventions from "./pages/Interventions";
 import AddSupplier from "./pages/AddSupplier";
+import DriverPortal from "./pages/DriverPortal";
+import SupplierPortal from "./pages/SupplierPortal";
+import DigitalTwin from "./pages/DigitalTwin";
+import SupplierSwap from "./pages/SupplierSwap";
+import Profile from "./pages/Profile";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,15 +32,32 @@ const queryClient = new QueryClient({
   },
 });
 
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) => {
+  const { isAuthenticated, isLoading, user } = useAuth();
 
   if (isLoading) {
-    return <div>Loading...</div>; // Or a proper loading spinner
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
   }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (allowedRoles && user) {
+    const role = user.role?.toLowerCase();
+    if (!allowedRoles.includes(role)) {
+      if (role === 'driver') {
+        return <Navigate to="/driver" replace />;
+      } else if (role === 'supplier') {
+        return <Navigate to="/supplier-portal" replace />;
+      } else {
+        return <Navigate to="/dashboard" replace />;
+      }
+    }
   }
 
   return <>{children}</>;
@@ -52,15 +74,20 @@ const App = () => (
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/dashboard" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-            <Route path="/suppliers" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
-            <Route path="/suppliers/:id" element={<ProtectedRoute><SupplierDetail /></ProtectedRoute>} />
-            <Route path="/add-supplier" element={<ProtectedRoute><AddSupplier /></ProtectedRoute>} />
-            <Route path="/alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
-            <Route path="/agent" element={<ProtectedRoute><Agent /></ProtectedRoute>} />
-            <Route path="/incidents" element={<ProtectedRoute><IncidentsPage /></ProtectedRoute>} />
-            <Route path="/sla-monitor" element={<ProtectedRoute><SLAMonitor /></ProtectedRoute>} />
-            <Route path="/interventions" element={<ProtectedRoute><Interventions /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['admin']}><Index /></ProtectedRoute>} />
+            <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['admin']}><Suppliers /></ProtectedRoute>} />
+            <Route path="/suppliers/:id" element={<ProtectedRoute allowedRoles={['admin']}><SupplierDetail /></ProtectedRoute>} />
+            <Route path="/add-supplier" element={<ProtectedRoute allowedRoles={['admin']}><AddSupplier /></ProtectedRoute>} />
+            <Route path="/alerts" element={<ProtectedRoute allowedRoles={['admin']}><Alerts /></ProtectedRoute>} />
+            <Route path="/agent" element={<ProtectedRoute allowedRoles={['admin']}><Agent /></ProtectedRoute>} />
+            <Route path="/incidents" element={<ProtectedRoute allowedRoles={['admin']}><IncidentsPage /></ProtectedRoute>} />
+            <Route path="/sla-monitor" element={<ProtectedRoute allowedRoles={['admin']}><SLAMonitor /></ProtectedRoute>} />
+            <Route path="/interventions" element={<ProtectedRoute allowedRoles={['admin']}><Interventions /></ProtectedRoute>} />
+            <Route path="/driver" element={<ProtectedRoute allowedRoles={['driver']}><DriverPortal /></ProtectedRoute>} />
+            <Route path="/supplier-portal" element={<ProtectedRoute allowedRoles={['supplier']}><SupplierPortal /></ProtectedRoute>} />
+            <Route path="/digital-twin" element={<ProtectedRoute allowedRoles={['admin']}><DigitalTwin /></ProtectedRoute>} />
+            <Route path="/supplier-swap" element={<ProtectedRoute allowedRoles={['admin']}><SupplierSwap /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

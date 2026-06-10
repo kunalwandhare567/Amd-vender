@@ -84,6 +84,53 @@ const navItems: NavItem[] = [
       </svg>
     ),
   },
+  {
+    label: 'driver_portal',
+    path: '/driver',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 011-1v-4a1 1 0 01.447-.894l3.106-1.553A1 1 0 0119 9.447V15a1 1 0 01-1 1h-1" />
+      </svg>
+    ),
+  },
+  {
+    label: 'supplier_portal',
+    path: '/supplier-portal',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+      </svg>
+    ),
+  },
+  {
+    label: 'digital_twin',
+    path: '/digital-twin',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+      </svg>
+    ),
+  },
+  {
+    label: 'rfq_autopilot',
+    path: '/supplier-swap',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+      </svg>
+    ),
+  },
+  {
+    label: 'profile',
+    path: '/profile',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+      </svg>
+    ),
+  },
 ];
 
 const languages = [
@@ -103,14 +150,28 @@ export function Sidebar() {
   const location = useLocation();
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useTheme();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const userName = user?.full_name || user?.email || 'User';
+  const userRole = user?.role?.toLowerCase() || 'admin';
+  const initials = userName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
+  // Dynamic nav filtering
+  const filteredItems = navItems.filter((item) => {
+    if (userRole === 'driver') {
+      return item.path === '/driver' || item.path === '/profile';
+    }
+    if (userRole === 'supplier') {
+      return item.path === '/supplier-portal' || item.path === '/profile';
+    }
+    // Admin access: sees all except the individual portal entrypoints
+    return item.path !== '/driver' && item.path !== '/supplier-portal';
+  });
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-sidebar border-r border-sidebar-border flex flex-col z-50">
       {/* Logo */}
       <div className="p-6 border-b border-sidebar-border">
-        <Link to="/dashboard" className="flex items-center gap-3">
+        <Link to={userRole === 'driver' ? '/driver' : userRole === 'supplier' ? '/supplier-portal' : '/dashboard'} className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
             <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -142,7 +203,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1">
-        {navItems.map((item) => {
+        {filteredItems.map((item) => {
           const isActive = location.pathname === item.path ||
             (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
           return (
@@ -162,12 +223,14 @@ export function Sidebar() {
         <div className="card-base p-3">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-              <span className="text-sm font-medium text-primary">PM</span>
+              <span className="text-xs font-semibold text-primary">{initials}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground truncate">{userName}</p>
-              <p className="text-xs text-muted-foreground">Admin Access</p>
+              <p className="text-xs text-muted-foreground capitalize">{userRole} Account</p>
             </div>
+          </div>
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-sidebar-border/30">
             <select
               value={i18n.language}
               onChange={e => i18n.changeLanguage(e.target.value)}
@@ -178,6 +241,17 @@ export function Sidebar() {
                 <option key={lang.code} value={lang.code}>{lang.name}</option>
               ))}
             </select>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={logout}
+              className="h-7 px-2 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center gap-1.5 transition-all duration-200"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Sign Out
+            </Button>
           </div>
         </div>
       </div>

@@ -17,15 +17,22 @@ interface IncidentRecord {
 }
 
 export default function IncidentsPage() {
-  const [incidents, setIncidents] = useState<IncidentRecord[]>([]);
+  const [incidents, setIncidents] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     async function fetchIncidents() {
       setLoading(true);
       try {
-        const response = await api.post('/incidents/generate');
-        setIncidents(response.data);
+        // First try to fetch existing incidents from DB
+        const response = await api.get('/incidents');
+        if (response.data && response.data.length > 0) {
+          setIncidents(response.data);
+        } else {
+          // If none exist, call the generation endpoint to populate them
+          const genResponse = await api.post('/incidents/generate');
+          setIncidents(genResponse.data || []);
+        }
       } catch (e) {
         console.error("Failed to fetch incidents", e);
         setIncidents([]);
@@ -96,10 +103,13 @@ export default function IncidentsPage() {
                       <TableCell className="font-medium">{inc.type}</TableCell>
                       <TableCell>{inc.location}</TableCell>
                       <TableCell>{inc.severity}</TableCell>
-                      <TableCell>{new Date(inc.startTime).toLocaleString()}</TableCell>
+                      <TableCell>{new Date(inc.startTime || inc.start_time).toLocaleString()}</TableCell>
                       <TableCell>{inc.status}</TableCell>
-
-                      <TableCell>{inc.affectedEntities.join(', ')}</TableCell>
+                      <TableCell>
+                        {Array.isArray(inc.affectedEntities) 
+                          ? inc.affectedEntities.join(', ') 
+                          : inc.affected_supplier_id || 'All Entities'}
+                      </TableCell>
                       <TableCell>{inc.description}</TableCell>
                     </motion.tr>
                   ))

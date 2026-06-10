@@ -158,9 +158,35 @@ def seed_data():
             )
             session.add(admin_user)
             print("Admin user created.")
+
+        # Seed Driver User
+        driver_email = "driver@supplier.com"
+        existing_driver = session.exec(select(User).where(User.email == driver_email)).first()
+        if not existing_driver:
+            driver_user = User(
+                email=driver_email,
+                password_hash=get_password_hash("driver123"),
+                full_name="Ramesh Kumar (Pune Driver)",
+                role="driver"
+            )
+            session.add(driver_user)
+            print("Driver user created.")
+
+        # Seed Supplier User
+        supplier_email = "supplier@supplier.com"
+        existing_supplier = session.exec(select(User).where(User.email == supplier_email)).first()
+        if not existing_supplier:
+            supplier_user = User(
+                email=supplier_email,
+                password_hash=get_password_hash("supplier123"),
+                full_name="ElectroDrive Support",
+                role="supplier"
+            )
+            session.add(supplier_user)
+            print("Supplier user created.")
         
         session.commit()
-        print(f"\nDatabase seeded with {len(suppliers)} suppliers, {len(alerts)} alerts, SLA metrics, and interventions.")
+        print(f"\nDatabase seeded with {len(suppliers)} suppliers, {len(alerts)} alerts, SLA metrics, interventions, and demo user accounts.")
 
 if __name__ == "__main__":
     seed_data()

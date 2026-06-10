@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import * as THREE from 'three';
 import { motion } from 'framer-motion';
 import { MainLayout } from '@/components/layout/MainLayout';
@@ -18,6 +19,7 @@ import { Supplier, Alert } from '@/data/mockData'; // Keeping interface
 const ITEMS_PER_PAGE = 5;
 
 const Index = () => {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [reportSupplierId, setReportSupplierId] = useState<string | null>(null);
@@ -262,14 +264,55 @@ const Index = () => {
 
       <div className="p-6 lg:p-8 space-y-8 relative z-10">
         {/* Header */}
-        <header className="animate-fade-in transform transition-all duration-500 hover:scale-[1.01]">
-          {/* <h1 className="text-3xl font-bold text-foreground mb-2">
-            Welcome back, <span className="text-gradient">Mihika</span>
-          </h1> */}
-          <p className="text-muted-foreground">
-            Monitor supplier performance, identify risks, and make data-driven decisions.
-          </p>
+        <header className="animate-fade-in transform transition-all duration-500 hover:scale-[1.01] flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground mb-2">
+              Command Center
+            </h1>
+            <p className="text-muted-foreground">
+              Monitor supplier performance, identify risks, and make data-driven decisions.
+            </p>
+          </div>
         </header>
+
+        {/* AI Sourcing & Simulation Hub Quick Actions */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-slide-up" style={{ animationDelay: '50ms' }}>
+          <div className="card-base border border-primary/20 bg-primary/5 p-6 rounded-xl flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                <h3 className="text-sm font-bold text-foreground">Disruption-to-Impact Digital Twin</h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Simulate the operational, revenue, and inventory consequences of delays across 3 to 30 day timelines.
+              </p>
+            </div>
+            <button 
+              onClick={() => navigate('/digital-twin')} 
+              className="mt-4 text-xs font-bold text-primary hover:text-primary/80 flex items-center gap-1 self-start transition-all"
+            >
+              Simulate Disruption <span className="text-sm">→</span>
+            </button>
+          </div>
+
+          <div className="card-base border border-cyan-500/20 bg-cyan-500/5 p-6 rounded-xl flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+                <h3 className="text-sm font-bold text-foreground">Supplier Swap + RFQ Autopilot</h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Evaluate alternative suppliers, generate AI-optimized RFQs, and approve live capacity bids.
+              </p>
+            </div>
+            <button 
+              onClick={() => navigate('/supplier-swap')} 
+              className="mt-4 text-xs font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 self-start transition-all"
+            >
+              Launch Sourcing Autopilot <span className="text-sm">→</span>
+            </button>
+          </div>
+        </div>
 
         {/* Summary Cards */}
         <section

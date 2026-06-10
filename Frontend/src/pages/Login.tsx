@@ -58,7 +58,16 @@ export default function Login() {
         title: 'Login Successful!',
         description: `Welcome back, ${data.user.full_name || data.user.email}`,
       });
-      navigate('/dashboard');
+
+      // Role-based redirect
+      const role = data.user.role?.toLowerCase();
+      if (role === 'driver') {
+        navigate('/driver');
+      } else if (role === 'supplier') {
+        navigate('/supplier-portal');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (error) {
       toast({
         title: 'Login Failed',
@@ -201,32 +210,47 @@ export default function Login() {
                   )}
                 </Button>
 
-                {/* <div className="relative my-6">
+                <div className="relative my-4">
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-border" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
                     <span className="bg-background px-2 text-muted-foreground">Demo Accounts</span>
                   </div>
-                </div> */}
+                </div>
 
-                {/* <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase">Quick Login:</p>
-                  {MOCK_USERS.map((user, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setEmail(user.email);
-                        setPassword(user.password);
-                      }}
-                      className="w-full text-left p-2 rounded hover:bg-background transition-colors text-sm"
-                    >
-                      <div className="font-medium">{user.role}</div>
-                      <div className="text-xs text-muted-foreground">{user.email}</div>
-                    </button>
-                  ))}
-                </div> */}
+                <div className="grid grid-cols-3 gap-2 p-2 bg-muted/30 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail('admin@supplier.com');
+                      setPassword('admin123');
+                    }}
+                    className="text-center p-2 rounded hover:bg-background border border-border/50 transition-all text-xs font-semibold"
+                  >
+                    Admin
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail('driver@supplier.com');
+                      setPassword('driver123');
+                    }}
+                    className="text-center p-2 rounded hover:bg-background border border-border/50 transition-all text-xs font-semibold"
+                  >
+                    Driver
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail('supplier@supplier.com');
+                      setPassword('supplier123');
+                    }}
+                    className="text-center p-2 rounded hover:bg-background border border-border/50 transition-all text-xs font-semibold"
+                  >
+                    Supplier
+                  </button>
+                </div>
 
                 <div className="text-center text-sm">
                   <span className="text-muted-foreground">Don't have an account? </span>

@@ -5,7 +5,7 @@ import socketio
 import uvicorn
 
 from .database import create_db_and_tables
-from .routers import suppliers, chat, auth, documents, alerts, incidents, sla, interventions, ai_command
+from .routers import suppliers, chat, auth, documents, alerts, incidents, sla, interventions, ai_command, rfqs
 from .rag.store import ingest_suppliers
 from .socket_manager import sio
 
@@ -47,6 +47,7 @@ fastapi_app.include_router(incidents.router)
 fastapi_app.include_router(sla.router)
 fastapi_app.include_router(interventions.router)
 fastapi_app.include_router(ai_command.router)
+fastapi_app.include_router(rfqs.router)
 
 # Wrap with Socket.IO
 app = socketio.ASGIApp(sio, fastapi_app)

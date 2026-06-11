@@ -1,6 +1,10 @@
 from langgraph.graph import StateGraph, START, END
-from .state import AgentState
-from .nodes import retrieve_node, generate_node
+try:
+    from agents.state import AgentState
+    from agents.nodes import retrieve_node, generate_node
+except ImportError:
+    from state import AgentState
+    from nodes import retrieve_node, generate_node
 
 # Define Graph
 builder = StateGraph(AgentState)

@@ -3,8 +3,8 @@ from sqlmodel import Session, select
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
-from ..database import get_session
-from ..models import RFQ, Supplier, Alert
+from database import get_session
+from models import RFQ, Supplier, Alert
 
 router = APIRouter(prefix="/api/rfqs", tags=["rfqs"])
 

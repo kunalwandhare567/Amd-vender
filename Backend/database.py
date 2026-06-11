@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from sqlmodel import SQLModel, create_engine, Session
+from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -23,13 +24,9 @@ if "sslmode" not in DATABASE_URL:
 engine = create_engine(
     DATABASE_URL,
     echo=True,
-    # ── Connection-pool settings tuned for Supabase ──────────────
-    # Supabase free tier allows ~60 direct connections; keep pool small.
-    pool_size=5,
-    max_overflow=10,
-    pool_timeout=30,
-    pool_recycle=300,       # recycle connections every 5 min to avoid idle drops
-    pool_pre_ping=True,     # verify connection is alive before handing it out
+    # ── Optimized for Supabase Pooler (PgBouncer) ──────────────
+    # Using NullPool delegates connection pooling to Supabase's PgBouncer on port 6543.
+    poolclass=NullPool,
 )
 
 def create_db_and_tables():

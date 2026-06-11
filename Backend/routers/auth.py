@@ -4,10 +4,10 @@ from sqlmodel import Session, select
 from datetime import timedelta
 from typing import Annotated
 
-from ..database import get_session
-from ..models import User
-from ..schemas import UserCreate
-from ..auth.security import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_MINUTES
+from database import get_session
+from models import User
+from schemas import UserCreate
+from auth.security import verify_password, create_access_token, get_password_hash, ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -64,7 +64,7 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], sessio
     # Since we are using OAuth2PasswordBearer, FastAPI handles token extraction.
     # We would need to decode it here to get user.
     from jose import JWTError, jwt
-    from ..auth.security import SECRET_KEY, ALGORITHM
+    from auth.security import SECRET_KEY, ALGORITHM
     
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

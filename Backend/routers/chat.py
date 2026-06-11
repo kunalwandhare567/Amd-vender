@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from langchain_core.messages import HumanMessage
-from ..agents.graph import graph
+from agents.graph import graph
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 

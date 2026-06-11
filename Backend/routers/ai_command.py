@@ -5,14 +5,14 @@ import random
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from ..llm import get_llm as get_central_llm
+from llm import get_llm as get_central_llm
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
 
-from ..database import get_session
-from ..models import Supplier, Alert
+from database import get_session
+from models import Supplier, Alert
 
 load_dotenv(override=True)
 

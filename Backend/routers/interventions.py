@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from ..database import get_session
-from ..models import Supplier, Alert, Intervention
-from ..llm import get_llm
+from database import get_session
+from models import Supplier, Alert, Intervention
+from llm import get_llm
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 from typing import List, Optional

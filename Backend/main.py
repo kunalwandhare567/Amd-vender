@@ -4,10 +4,10 @@ from contextlib import asynccontextmanager
 import socketio
 import uvicorn
 
-from .database import create_db_and_tables
-from .routers import suppliers, chat, auth, documents, alerts, incidents, sla, interventions, ai_command, rfqs
-from .rag.store import ingest_suppliers
-from .socket_manager import sio
+from database import create_db_and_tables
+from routers import suppliers, chat, auth, documents, alerts, incidents, sla, interventions, ai_command, rfqs, routing, trips
+from rag.store import ingest_suppliers
+from socket_manager import sio
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -48,6 +48,8 @@ fastapi_app.include_router(sla.router)
 fastapi_app.include_router(interventions.router)
 fastapi_app.include_router(ai_command.router)
 fastapi_app.include_router(rfqs.router)
+fastapi_app.include_router(routing.router)
+fastapi_app.include_router(trips.router)
 
 # Wrap with Socket.IO
 app = socketio.ASGIApp(sio, fastapi_app)
@@ -55,4 +57,4 @@ app = socketio.ASGIApp(sio, fastapi_app)
 if __name__ == "__main__":
     # Note: When running with uvicorn programmatically or via CLI, 
     # we need to point to the 'app' object which is the ASGIApp
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

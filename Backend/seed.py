@@ -11,7 +11,7 @@ import json
 from dotenv import load_dotenv
 from sqlmodel import Session, select, SQLModel
 from database import engine, create_db_and_tables
-from models import Supplier, Alert, User, SLAMetric, Intervention
+from models import Supplier, Alert, User, SLAMetric, Intervention, Driver, InvoiceTrip
 from auth.security import get_password_hash
 from seed_data.suppliers import get_kaggle_suppliers
 from seed_data.alerts import get_realistic_alerts
@@ -112,6 +112,88 @@ Output ONLY valid JSON, no markdown."""
             print(f"  {s.name}: score={s.overall_score}, risk={s.risk_level}, otd={s.otd_percentage}% (rule-based)")
 
 
+def seed_drivers_and_trips(session):
+    """Seed demo drivers and pre-built trips for the routing module."""
+    from routers.routing import dijkstra, NODES
+    import json as _json
+
+    drivers = [
+        Driver(id="DRV-001", name="Kunal Wandhare", phone="+91-9876543210", truck_no="MH-12-QW-5678", status="On Trip", current_lat=19.2183, current_lng=72.9781, supplier_id="SUP001"),
+        Driver(id="DRV-002", name="Rajesh Sharma", phone="+91-9123456789", truck_no="MH-04-AB-1234", status="Available", current_lat=18.9388, current_lng=72.8354, supplier_id="SUP001"),
+        Driver(id="DRV-003", name="Amit Patil", phone="+91-9988776655", truck_no="MH-14-CD-9012", status="Available", current_lat=18.5204, current_lng=73.8567, supplier_id="SUP002"),
+        Driver(id="DRV-004", name="Suresh Jadhav", phone="+91-9112233445", truck_no="MH-43-EF-3456", status="Offline", current_lat=19.0330, current_lng=73.0297, supplier_id="SUP003"),
+        Driver(id="DRV-005", name="Vikram Desai", phone="+91-9556677889", truck_no="MH-12-GH-7890", status="Available", current_lat=19.2967, current_lng=73.0631, supplier_id="SUP004"),
+    ]
+    for d in drivers:
+        session.add(d)
+    print(f"  Seeded {len(drivers)} drivers.")
+
+    # Pre-built trips with Dijkstra routes
+    trip_configs = [
+        {
+            "id": "TRIP-0001",
+            "product_name": "Industrial Capacitors (Batch-C44)",
+            "quantity": 500,
+            "driver_id": "DRV-001",
+            "supplier_id": "SUP001",
+            "source": "Thane Warehouse",
+            "dest": "Pimpri Chinchwad Plant",
+            "status": "In Transit",
+            "progress": 35.0,
+            "est_arrival": "2026-06-11T14:00:00",
+        },
+        {
+            "id": "TRIP-0002",
+            "product_name": "Organic Face Cream (SKU-FC200)",
+            "quantity": 1200,
+            "driver_id": "DRV-002",
+            "supplier_id": "SUP001",
+            "source": "Mumbai Port",
+            "dest": "Pune Chakan MIDC",
+            "status": "Scheduled",
+            "progress": 0.0,
+            "est_arrival": "2026-06-12T10:00:00",
+        },
+        {
+            "id": "TRIP-0003",
+            "product_name": "Herbal Shampoo Concentrate",
+            "quantity": 800,
+            "driver_id": "DRV-005",
+            "supplier_id": "SUP004",
+            "source": "Bhiwandi Logistics",
+            "dest": "Pune City Center",
+            "status": "Scheduled",
+            "progress": 0.0,
+            "est_arrival": "2026-06-12T16:00:00",
+        },
+    ]
+
+    for cfg in trip_configs:
+        route = dijkstra(cfg["source"], cfg["dest"])
+        src = NODES[cfg["source"]]
+        dst = NODES[cfg["dest"]]
+
+        trip = InvoiceTrip(
+            id=cfg["id"],
+            product_name=cfg["product_name"],
+            quantity=cfg["quantity"],
+            driver_id=cfg["driver_id"],
+            supplier_id=cfg["supplier_id"],
+            source_location=cfg["source"],
+            source_lat=src["lat"],
+            source_lng=src["lng"],
+            destination_location=cfg["dest"],
+            destination_lat=dst["lat"],
+            destination_lng=dst["lng"],
+            status=cfg["status"],
+            route_json=_json.dumps(route["coordinates"]) if route else "[]",
+            current_progress=cfg["progress"],
+            est_arrival=cfg["est_arrival"],
+        )
+        session.add(trip)
+    print(f"  Seeded {len(trip_configs)} invoice trips with Dijkstra routes.")
+
+
 def seed_data():
     # Drop and recreate tables (schema changed)
     SQLModel.metadata.drop_all(engine)
@@ -166,7 +248,7 @@ def seed_data():
             driver_user = User(
                 email=driver_email,
                 password_hash=get_password_hash("driver123"),
-                full_name="Ramesh Kumar (Pune Driver)",
+                full_name="Kunal Wandhare",
                 role="driver"
             )
             session.add(driver_user)
@@ -184,9 +266,14 @@ def seed_data():
             )
             session.add(supplier_user)
             print("Supplier user created.")
+
+        # Seed Drivers & Trips
+        print("Seeding drivers and trips...")
+        seed_drivers_and_trips(session)
         
         session.commit()
-        print(f"\nDatabase seeded with {len(suppliers)} suppliers, {len(alerts)} alerts, SLA metrics, interventions, and demo user accounts.")
+        print(f"\nDatabase seeded with {len(suppliers)} suppliers, {len(alerts)} alerts, SLA metrics, interventions, drivers, trips, and demo user accounts.")
 
 if __name__ == "__main__":
     seed_data()
+

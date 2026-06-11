@@ -1,11 +1,14 @@
 import os
 from dotenv import load_dotenv
-from ..llm import get_llm as get_central_llm
+from llm import get_llm as get_central_llm
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from sqlmodel import Session, select
-from .state import AgentState
-from ..database import engine
-from ..models import Supplier, Alert
+try:
+    from agents.state import AgentState
+except ImportError:
+    from state import AgentState
+from database import engine
+from models import Supplier, Alert
 
 
 # Load environment variables
@@ -64,7 +67,7 @@ def retrieve_node(state: AgentState):
     # Try RAG retrieval first, fall back to live DB data
     rag_context = ""
     try:
-        from ..rag.store import get_retriever
+        from rag.store import get_retriever
         last_message = state["messages"][-1]
         query = ""
         if isinstance(last_message.content, list):

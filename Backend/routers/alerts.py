@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select
 from typing import List, Optional
-from ..database import get_session
-from ..models import Alert
+from database import get_session
+from models import Alert
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 

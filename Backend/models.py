@@ -98,6 +98,9 @@ class Incident(SQLModel, table=True):
     affected_supplier_id: Optional[str] = Field(default=None, foreign_key="supplier.supplier_id")
     status: str = Field(default="Active")  # Active, Resolved
     reported_by: str = Field(default="Driver")  # Driver, AI
+    lat: Optional[float] = None  # Incident GPS latitude
+    lng: Optional[float] = None  # Incident GPS longitude
+    trip_id: Optional[str] = None  # Associated trip (if reported by driver)
 
 class RFQ(SQLModel, table=True):
     id: str = Field(primary_key=True)
@@ -112,4 +115,33 @@ class RFQ(SQLModel, table=True):
     bid_price: Optional[float] = None
     bid_lead_time: Optional[int] = None
     bid_comments: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class Driver(SQLModel, table=True):
+    id: str = Field(primary_key=True)
+    name: str
+    phone: str = ""
+    truck_no: str = ""
+    status: str = Field(default="Available")  # Available, On Trip, Offline
+    current_lat: Optional[float] = None
+    current_lng: Optional[float] = None
+    supplier_id: Optional[str] = Field(default=None, foreign_key="supplier.supplier_id")
+
+class InvoiceTrip(SQLModel, table=True):
+    __tablename__ = "invoicetrip"
+    id: str = Field(primary_key=True)
+    product_name: str
+    quantity: int
+    driver_id: str = Field(foreign_key="driver.id")
+    supplier_id: Optional[str] = Field(default=None, foreign_key="supplier.supplier_id")
+    source_location: str
+    source_lat: float
+    source_lng: float
+    destination_location: str
+    destination_lat: float
+    destination_lng: float
+    status: str = Field(default="Scheduled")  # Scheduled, In Transit, Delayed, Completed
+    route_json: Optional[str] = None  # JSON array of {lat, lng, name} waypoints
+    current_progress: float = Field(default=0.0)
+    est_arrival: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

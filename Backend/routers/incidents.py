@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from ..database import get_session
-from ..models import Incident
+from database import get_session
+from models import Incident
 import os
 import json
 from datetime import datetime
-from ..llm import get_llm
+from llm import get_llm
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 from typing import List, Optional
@@ -18,6 +18,9 @@ class IncidentCreate(BaseModel):
     severity: str
     description: str
     affected_supplier_id: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    trip_id: Optional[str] = None
 
 @router.get("", response_model=List[Incident])
 def get_all_incidents(session: Session = Depends(get_session)):

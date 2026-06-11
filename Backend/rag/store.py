@@ -4,8 +4,8 @@ from langchain_core.documents import Document  # pyrefly: ignore [missing-import
 from langchain_community.document_loaders import PyPDFLoader, CSVLoader  # pyrefly: ignore [missing-import]
 from langchain_text_splitters import RecursiveCharacterTextSplitter  # pyrefly: ignore [missing-import]
 from sqlmodel import Session, select  # pyrefly: ignore [missing-import]
-from ..database import engine
-from ..models import Supplier
+from database import engine
+from models import Supplier
 from openai import OpenAI  # pyrefly: ignore [missing-import]
 import os
 import shutil
@@ -54,7 +54,7 @@ def get_vector_store():
             base_url=base_url
         )
         
-        db_path = "./backend/chroma_db"
+        db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chroma_db")
         try:
             _vector_store = Chroma(
                 collection_name="suppliers",

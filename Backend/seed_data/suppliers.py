@@ -63,7 +63,7 @@ def get_kaggle_suppliers() -> list[Supplier]:
             inspection_pass = 0.0
 
         suppliers.append(Supplier(
-            supplier_id=f"SUP-{idx:03d}",
+            supplier_id=f"SUP{idx:03d}",
             name=name,
             location=", ".join(locations),
             product_types=json.dumps(product_types),

@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlmodel import Session, select
 from typing import List, Optional
 from pydantic import BaseModel
-from ..database import get_session
-from ..models import Supplier
+from database import get_session
+from models import Supplier
 from datetime import datetime
 import json
 import os
@@ -145,7 +145,7 @@ def get_supplier_summary(supplier_id: str, session: Session = Depends(get_sessio
     Output ONLY valid JSON, no markdown formatting."""
 
     try:
-        from ..llm import get_llm
+        from llm import get_llm
         from langchain_core.messages import HumanMessage
         import os
         import json
@@ -209,7 +209,7 @@ def generate_report(supplier_id: str, session: Session = Depends(get_session)):
     """
 
     try:
-        from ..llm import get_llm
+        from llm import get_llm
         from langchain_core.messages import HumanMessage
         import os
         import json
@@ -346,7 +346,7 @@ def add_supplier(body: AddSupplierRequest, session: Session = Depends(get_sessio
 
     # ── 2. AI-evaluate: overall_score, risk_level, otd_percentage ────
     try:
-        from ..llm import get_llm
+        from llm import get_llm
         from langchain_core.messages import HumanMessage
 
         llm = get_llm(temperature=0.3)

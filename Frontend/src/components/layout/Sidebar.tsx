@@ -104,6 +104,43 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: 'fleet_map',
+    path: '/supplier-portal?tab=fleet',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+      </svg>
+    ),
+  },
+  {
+    label: 'dispatch_trip',
+    path: '/supplier-portal?tab=dispatch',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+      </svg>
+    ),
+  },
+  {
+    label: 'drivers',
+    path: '/supplier-portal?tab=drivers',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 011-1v-4a1 1 0 01.447-.894l3.106-1.553A1 1 0 0119 9.447V15a1 1 0 01-1 1h-1" />
+      </svg>
+    ),
+  },
+  {
+    label: 'delivery_history',
+    path: '/supplier-portal?tab=history',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+      </svg>
+    ),
+  },
+  {
     label: 'digital_twin',
     path: '/digital-twin',
     icon: (
@@ -161,17 +198,20 @@ export function Sidebar() {
       return item.path === '/driver' || item.path === '/profile';
     }
     if (userRole === 'supplier') {
-      return item.path === '/supplier-portal' || item.path === '/profile';
+      return (
+        item.path.startsWith('/supplier-portal?tab=') ||
+        item.path === '/profile'
+      );
     }
     // Admin access: sees all except the individual portal entrypoints
-    return item.path !== '/driver' && item.path !== '/supplier-portal';
+    return item.path !== '/driver' && !item.path.startsWith('/supplier-portal');
   });
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-sidebar border-r border-sidebar-border flex flex-col z-50">
       {/* Logo */}
       <div className="p-6 border-b border-sidebar-border">
-        <Link to={userRole === 'driver' ? '/driver' : userRole === 'supplier' ? '/supplier-portal' : '/dashboard'} className="flex items-center gap-3">
+        <Link to={userRole === 'driver' ? '/driver' : userRole === 'supplier' ? '/supplier-portal?tab=fleet' : '/dashboard'} className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
             <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -204,8 +244,9 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1">
         {filteredItems.map((item) => {
-          const isActive = location.pathname === item.path ||
-            (item.path !== '/dashboard' && location.pathname.startsWith(item.path));
+          const isActive = item.path.includes('?')
+            ? (location.pathname + location.search) === item.path
+            : (location.pathname === item.path || (item.path !== '/dashboard' && location.pathname.startsWith(item.path)));
           return (
             <Link
               key={item.path}

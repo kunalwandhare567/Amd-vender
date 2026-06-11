@@ -1,545 +1,393 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
-import { 
-  Building2, 
-  FileSpreadsheet, 
-  TrendingUp, 
-  CheckCircle, 
-  Clock, 
-  AlertOctagon, 
-  Send,
-  MapPin,
-  Map
+import {
+  Building2, TrendingUp, CheckCircle, Clock, AlertOctagon, Send,
+  MapPin, Truck, Package, Route, AlertTriangle, Plus
 } from 'lucide-react';
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
-interface RFQItem {
-  id: string;
-  supplier_id: string;
-  supplier_name: string;
-  original_supplier_id: string;
-  original_supplier_name: string;
-  part_sku: string;
-  quantity: number;
-  target_delivery_days: number;
-  delivery_location: string;
-  terms_conditions: string;
-  status: string;
-  bid_price?: number;
-  bid_lead_time?: number;
-  bid_comments?: string;
-  created_at: string;
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+});
+
+interface DriverData { id: string; name: string; phone: string; truck_no: string; status: string; current_lat: number; current_lng: number; supplier_id: string; }
+interface TripData { id: string; product_name: string; quantity: number; driver_id: string; supplier_id: string; source_location: string; source_lat: number; source_lng: number; destination_location: string; destination_lat: number; destination_lng: number; status: string; route_json: string; current_progress: number; est_arrival: string; }
+interface RouteCoord { lat: number; lng: number; name: string; }
+interface GraphNode { name: string; lat: number; lng: number; }
+
+const truckIcon = new L.DivIcon({
+  html: `<div style="background:#1e1b4b;border:3px solid #22d3ee;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 10px rgba(34,211,238,0.5)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2.5"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></div>`,
+  className: '', iconSize: [24, 24], iconAnchor: [12, 12],
+});
+
+function FitBounds({ points }: { points: [number, number][] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (points.length > 1) map.fitBounds(L.latLngBounds(points.map(p => L.latLng(p[0], p[1]))), { padding: [40, 40] });
+  }, [points, map]);
+  return null;
 }
 
 export default function SupplierPortal() {
-  const [selectedSupplierId, setSelectedSupplierId] = useState("SUP001");
-  const [supplierName, setSupplierName] = useState("Glow Cosmetics");
-  const [rfqs, setRfqs] = useState<RFQItem[]>([]);
-  const [activeTab, setActiveTab] = useState<"rfqs" | "performance" | "sla">("rfqs");
-  const [loading, setLoading] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab') as 'fleet' | 'dispatch' | 'drivers' | 'history' | null;
+  const activeTab = tabParam || 'fleet';
 
-  // Form states for bidding
-  const [biddingRfqId, setBiddingRfqId] = useState<string | null>(null);
-  const [bidPrice, setBidPrice] = useState("");
-  const [bidLeadTime, setBidLeadTime] = useState("");
-  const [bidComments, setBidComments] = useState("");
-  const [submittingBid, setSubmittingBid] = useState(false);
+  const setActiveTab = (tab: 'fleet' | 'dispatch' | 'drivers' | 'history') => {
+    setSearchParams({ tab });
+  };
+  const [drivers, setDrivers] = useState<DriverData[]>([]);
+  const [trips, setTrips] = useState<TripData[]>([]);
+  const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Dispatch form
+  const [dispProduct, setDispProduct] = useState('');
+  const [dispQty, setDispQty] = useState('100');
+  const [dispDriver, setDispDriver] = useState('');
+  const [dispSource, setDispSource] = useState('');
+  const [dispDest, setDispDest] = useState('');
+  const [dispSubmitting, setDispSubmitting] = useState(false);
 
-  // Supplier profiles for demo switching
-  const supplierProfiles = [
-    { id: "SUP001", name: "Glow Cosmetics", otd: "94.5%", defect: "2.3%", passRate: "97.5%", slaStatus: "Warning" },
-    { id: "SUP002", name: "Herbal Essence Ltd", otd: "96.8%", defect: "1.5%", passRate: "98.2%", slaStatus: "Compliant" },
-    { id: "SUP003", name: "EcoBeauty Solutions", otd: "88.2%", defect: "3.2%", passRate: "95.8%", slaStatus: "Breached" },
-    { id: "SUP004", name: "Premier Haircare", otd: "79.5%", defect: "5.1%", passRate: "93.2%", slaStatus: "Breached" },
-    { id: "SUP005", name: "Luxe Packaging & Supply", otd: "98.3%", defect: "0.8%", passRate: "99.1%", slaStatus: "Warning" }
-  ];
-
-  const currentProfile = supplierProfiles.find(p => p.id === selectedSupplierId) || supplierProfiles[0];
-
-  const fetchRfqs = async () => {
-    setLoading(true);
+  const fetchData = useCallback(async () => {
     try {
-      const res = await api.get(`/rfqs?supplier_id=${selectedSupplierId}`);
-      setRfqs(res.data);
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to load RFQs");
-    } finally {
-      setLoading(false);
-    }
-  };
+      const [driversRes, tripsRes, nodesRes] = await Promise.all([
+        api.get('/drivers'), api.get('/trips'), api.get('/route/nodes'),
+      ]);
+      setDrivers(driversRes.data);
+      setTrips(tripsRes.data);
+      setGraphNodes(nodesRes.data.nodes);
+    } catch {
+      // Fallback demo data
+      setDrivers([
+        { id: 'DRV-001', name: 'Kunal Wandhare', phone: '+91-9876543210', truck_no: 'MH-12-QW-5678', status: 'On Trip', current_lat: 19.2183, current_lng: 72.9781, supplier_id: 'SUP001' },
+        { id: 'DRV-002', name: 'Rajesh Sharma', phone: '+91-9123456789', truck_no: 'MH-04-AB-1234', status: 'Available', current_lat: 18.9388, current_lng: 72.8354, supplier_id: 'SUP001' },
+      ]);
+      setTrips([{
+        id: 'TRIP-0001', product_name: 'Industrial Capacitors', quantity: 500, driver_id: 'DRV-001', supplier_id: 'SUP001',
+        source_location: 'Thane Warehouse', source_lat: 19.2183, source_lng: 72.9781,
+        destination_location: 'Pimpri Chinchwad Plant', destination_lat: 18.6278, destination_lng: 73.8131,
+        status: 'In Transit', route_json: JSON.stringify([
+          { lat: 19.2183, lng: 72.9781, name: 'Thane Warehouse' },
+          { lat: 19.0330, lng: 73.0297, name: 'Navi Mumbai Hub' },
+          { lat: 18.9894, lng: 73.1175, name: 'Panvel Junction' },
+          { lat: 18.7860, lng: 73.3414, name: 'Khopoli Depot' },
+          { lat: 18.7546, lng: 73.4063, name: 'Lonavala Junction' },
+          { lat: 18.7350, lng: 73.6757, name: 'Talegaon Depot' },
+          { lat: 18.6278, lng: 73.8131, name: 'Pimpri Chinchwad Plant' },
+        ]), current_progress: 35, est_arrival: '2026-06-11T14:00:00',
+      }]);
+      setGraphNodes([
+        { name: 'Mumbai Port', lat: 18.9388, lng: 72.8354 },
+        { name: 'Thane Warehouse', lat: 19.2183, lng: 72.9781 },
+        { name: 'Navi Mumbai Hub', lat: 19.0330, lng: 73.0297 },
+        { name: 'Pimpri Chinchwad Plant', lat: 18.6278, lng: 73.8131 },
+        { name: 'Pune Chakan MIDC', lat: 18.7606, lng: 73.8600 },
+        { name: 'Pune City Center', lat: 18.5204, lng: 73.8567 },
+        { name: 'Bhiwandi Logistics', lat: 19.2967, lng: 73.0631 },
+      ]);
+    } finally { setLoading(false); }
+  }, []);
 
-  useEffect(() => {
-    fetchRfqs();
-    setSupplierName(currentProfile.name);
-  }, [selectedSupplierId]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Canvas drawing for outgoing map track
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const width = canvas.width = canvas.parentElement?.clientWidth || 500;
-    const height = canvas.height = 200;
-
-    // Draw tech background grid
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x < width; x += 25) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-    }
-    for (let y = 0; y < height; y += 25) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
-    }
-
-    // Draw route: Pune factory to Tata Plant
-    ctx.beginPath();
-    ctx.moveTo(50, 100);
-    ctx.lineTo(width - 50, 100);
-    ctx.strokeStyle = '#10b981'; // green route
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    // Pulse outgoing truck
-    const pulseX = 50 + ((Date.now() / 50) % (width - 100));
-    ctx.beginPath();
-    ctx.arc(pulseX, 100, 8, 0, Math.PI * 2);
-    ctx.fillStyle = '#10b981';
-    ctx.fill();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // Text labels
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '10px sans-serif';
-    ctx.fillText("Supplier Warehouse (Dispatch)", 20, 130);
-    ctx.fillText("Buyer OEM Facility (In Transit)", width - 150, 130);
-  }, [selectedSupplierId]);
-
-  const handleOpenBid = (rfq: RFQItem) => {
-    setBiddingRfqId(rfq.id);
-    setBidPrice(rfq.part_sku.includes("ECU") ? "24.50" : "15.00");
-    setBidLeadTime(rfq.target_delivery_days.toString());
-    setBidComments("Confirming production capacity and rapid dispatch window.");
-  };
-
-  const handleSubmitBid = async (e: React.FormEvent) => {
+  const handleDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bidPrice || !bidLeadTime) {
-      toast.error("Please fill in price and lead time");
-      return;
-    }
-    setSubmittingBid(true);
+    if (!dispProduct || !dispDriver || !dispSource || !dispDest) { toast.error('Fill all fields'); return; }
+    setDispSubmitting(true);
     try {
-      const payload = {
-        bid_price: parseFloat(bidPrice),
-        bid_lead_time: parseInt(bidLeadTime),
-        bid_comments: bidComments
-      };
-
-      await api.post(`/rfqs/${biddingRfqId}/bid`, payload);
-      toast.success("Bid submitted successfully! Buyer dashboard notified.");
-      setBiddingRfqId(null);
-      fetchRfqs(); // Reload list
-    } catch (err) {
-      toast.error("Failed to submit bid");
-    } finally {
-      setSubmittingBid(false);
-    }
+      await api.post('/trips', {
+        product_name: dispProduct, quantity: parseInt(dispQty),
+        driver_id: dispDriver, source_location: dispSource, destination_location: dispDest,
+      });
+      toast.success('Trip created! Dijkstra route calculated automatically.');
+      setDispProduct(''); setDispQty('100');
+      fetchData();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to create trip');
+    } finally { setDispSubmitting(false); }
   };
+
+  // Build map points from all trips
+  const allMapPoints: [number, number][] = [];
+  const tripRoutes: { coords: [number, number][]; status: string; id: string }[] = [];
+  trips.forEach(t => {
+    try {
+      const coords: RouteCoord[] = JSON.parse(t.route_json || '[]');
+      const path: [number, number][] = coords.map(c => [c.lat, c.lng]);
+      tripRoutes.push({ coords: path, status: t.status, id: t.id });
+      path.forEach(p => allMapPoints.push(p));
+    } catch {}
+  });
+  drivers.forEach(d => { if (d.current_lat) allMapPoints.push([d.current_lat, d.current_lng]); });
+
+  if (loading) return <MainLayout><div className="flex items-center justify-center min-h-screen"><div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div></MainLayout>;
 
   return (
     <MainLayout>
       <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
-        
-        {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-3xl font-extrabold text-foreground tracking-tight flex items-center gap-2">
               <Building2 className="h-8 w-8 text-primary" />
-              Supplier Collaboration Portal
+              Supplier Command Center
             </h1>
-            <p className="text-muted-foreground mt-1">
-              Active RFQs, bid configurations, SLA compliance parameters, and performance scorecard.
-            </p>
+            <p className="text-muted-foreground mt-1">Fleet tracking, dispatch management, and route intelligence.</p>
           </div>
-          
-          <div className="flex items-center gap-3">
-            <Label htmlFor="supplier-select" className="text-xs font-semibold text-muted-foreground">Select Profile (Demo Mode):</Label>
-            <select
-              id="supplier-select"
-              value={selectedSupplierId}
-              onChange={(e) => setSelectedSupplierId(e.target.value)}
-              className="border border-border rounded-lg px-3 py-1.5 text-xs bg-secondary font-bold text-foreground focus:outline-none"
-            >
-              {supplierProfiles.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+          <div className="flex gap-2">
+            <span className="text-sm bg-secondary px-3 py-1.5 rounded-lg border border-border font-semibold">{drivers.length} Drivers</span>
+            <span className="text-sm bg-secondary px-3 py-1.5 rounded-lg border border-border font-semibold">{trips.filter(t => t.status === 'In Transit').length} Active Trips</span>
           </div>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tabs */}
         <div className="flex border-b border-border gap-6">
-          <button 
-            onClick={() => setActiveTab("rfqs")}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-all ${
-              activeTab === "rfqs" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Incoming RFQs ({rfqs.filter(r => r.status === "Sent").length})
-          </button>
-          <button 
-            onClick={() => setActiveTab("performance")}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-all ${
-              activeTab === "performance" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Performance Scorecard
-          </button>
-          <button 
-            onClick={() => setActiveTab("sla")}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-all ${
-              activeTab === "sla" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            SLA Alerts & Compliance
-          </button>
+          {(['fleet', 'dispatch', 'drivers', 'history'] as const).map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab)}
+              className={`pb-3 text-sm font-semibold border-b-2 transition-all capitalize ${activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+              {tab === 'fleet' ? '🗺️ Fleet Map' : tab === 'dispatch' ? '📦 Dispatch Trip' : tab === 'drivers' ? '🚛 Drivers' : '📜 Delivery History'}
+            </button>
+          ))}
         </div>
 
-        {/* Main Content Area */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
-          <div className="lg:col-span-8 space-y-6">
-            <AnimatePresence mode="wait">
-              
-              {/* Tab 1: Incoming RFQs */}
-              {activeTab === "rfqs" && (
-                <motion.div
-                  key="rfqs"
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -15 }}
-                  className="space-y-6"
-                >
-                  {loading ? (
-                    <p className="text-center py-8 text-muted-foreground">Loading RFQs...</p>
-                  ) : rfqs.length === 0 ? (
-                    <Card className="card-base p-8 text-center text-muted-foreground">
-                      <FileSpreadsheet className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-40" />
-                      <p className="font-semibold">No active RFQs received.</p>
-                      <p className="text-xs mt-1">Sourcing Autopilot will broadcast RFQs here during supply chain disruption simulations.</p>
-                    </Card>
-                  ) : (
-                    rfqs.map(rfq => (
-                      <Card key={rfq.id} className={`card-base border ${
-                        rfq.status === 'Sent' ? 'border-primary/40 bg-primary/5' : 'border-border'
-                      }`}>
-                        <CardHeader className="py-4 border-b border-border/60">
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <CardTitle className="text-sm font-mono font-bold text-primary">{rfq.id}</CardTitle>
-                              <p className="text-xs text-muted-foreground mt-0.5">Disrupted Supplier: {rfq.original_supplier_name}</p>
-                            </div>
-                            <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
-                              rfq.status === 'Sent' ? 'bg-cyan-500/10 text-cyan-400' :
-                              rfq.status === 'Bid_Submitted' ? 'bg-amber-500/10 text-amber-400' :
-                              rfq.status === 'Approved' ? 'bg-emerald-500/10 text-emerald-400' :
-                              'bg-slate-500/10 text-slate-400'
-                            }`}>
-                              {rfq.status === 'Sent' ? 'Action Required' : rfq.status.replace('_', ' ')}
-                            </span>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="p-6 space-y-4">
-                          
-                          {/* Sourcing Requirements */}
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-secondary/50 p-4 rounded-xl border border-border/80">
-                            <div>
-                              <p className="text-[10px] uppercase font-bold text-muted-foreground">Part / SKU</p>
-                              <p className="text-sm font-semibold text-foreground">{rfq.part_sku}</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase font-bold text-muted-foreground">Quantity Required</p>
-                              <p className="text-sm font-semibold text-foreground">{rfq.quantity.toLocaleString()} Units</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase font-bold text-muted-foreground">Target Delivery</p>
-                              <p className="text-sm font-semibold text-foreground">{rfq.target_delivery_days} Days</p>
-                            </div>
-                            <div>
-                              <p className="text-[10px] uppercase font-bold text-muted-foreground">Delivery Loc</p>
-                              <p className="text-sm font-semibold text-foreground truncate">{rfq.delivery_location}</p>
-                            </div>
-                          </div>
+        <AnimatePresence mode="wait">
+          {/* Fleet Map Tab */}
+          {activeTab === 'fleet' && (
+            <motion.div key="fleet" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} className="space-y-6">
+              <Card className="card-base overflow-hidden">
+                <CardHeader className="py-4 border-b border-border bg-primary/5">
+                  <CardTitle className="text-base font-bold flex items-center gap-2"><Route className="h-5 w-5 text-primary" /> Live Fleet & Route Overview (OSM)</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="h-[500px] w-full">
+                    <MapContainer center={[19.0, 73.2]} zoom={9} className="h-full w-full" style={{ height: '500px' }}>
+                      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" {...({ attribution: '&copy; OpenStreetMap' } as any)} />
+                      {allMapPoints.length > 1 && <FitBounds points={allMapPoints} />}
 
-                          <div className="space-y-1">
-                            <p className="text-xs font-bold text-muted-foreground">Terms & Conditions</p>
-                            <p className="text-xs text-slate-300 bg-secondary/30 p-3 rounded-lg border border-border/50">{rfq.terms_conditions}</p>
-                          </div>
+                      {tripRoutes.map(tr => (
+                        <Polyline key={tr.id} positions={tr.coords} pathOptions={{
+                          color: tr.status === 'Delayed' ? '#ef4444' : tr.status === 'In Transit' ? '#22d3ee' : tr.status === 'Completed' ? '#10b981' : '#94a3b8',
+                          weight: 4, opacity: 0.8,
+                        }} />
+                      ))}
 
-                          {/* Existing Bid Display */}
-                          {rfq.status !== 'Sent' && (
-                            <div className="bg-amber-500/5 border border-amber-500/20 p-4 rounded-xl space-y-2">
-                              <p className="text-xs font-bold text-amber-400">Your Submitted Sourcing Proposal</p>
-                              <div className="grid grid-cols-3 gap-4 text-xs">
-                                <div>
-                                  <span className="text-muted-foreground">Proposed Price:</span>
-                                  <strong className="text-foreground ml-1">${rfq.bid_price?.toFixed(2)}</strong>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">Lead Time:</span>
-                                  <strong className="text-foreground ml-1">{rfq.bid_lead_time} Days</strong>
-                                </div>
-                              </div>
-                              {rfq.bid_comments && (
-                                <p className="text-xs text-muted-foreground mt-1">Comments: "{rfq.bid_comments}"</p>
-                              )}
-                            </div>
-                          )}
+                      {drivers.filter(d => d.current_lat).map(d => (
+                        <Marker key={d.id} position={[d.current_lat, d.current_lng] as L.LatLngExpression} {...({ icon: truckIcon } as any)}>
+                          <Popup><strong>{d.name}</strong><br />{d.truck_no}<br />Status: {d.status}</Popup>
+                        </Marker>
+                      ))}
+                    </MapContainer>
+                  </div>
+                </CardContent>
+              </Card>
 
-                          {/* Submit Bid Button */}
-                          {rfq.status === 'Sent' && biddingRfqId !== rfq.id && (
-                            <Button onClick={() => handleOpenBid(rfq)} className="w-full bg-cyan-500 hover:bg-cyan-600 font-bold text-slate-950">
-                              Configure & Submit Bid Proposal
-                            </Button>
-                          )}
-
-                          {/* Inline Bidding Form */}
-                          {biddingRfqId === rfq.id && (
-                            <motion.form 
-                              initial={{ opacity: 0, height: 0 }}
-                              animate={{ opacity: 1, height: "auto" }}
-                              onSubmit={handleSubmitBid}
-                              className="border border-cyan-500/20 bg-cyan-950/5 p-4 rounded-xl space-y-4"
-                            >
-                              <h4 className="text-sm font-bold text-cyan-400 flex items-center gap-2">
-                                <Send className="h-4 w-4" />
-                                Configure Sourcing Proposal
-                              </h4>
-                              
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="bidPrice">Unit Price Bid ($)</Label>
-                                  <Input 
-                                    id="bidPrice"
-                                    type="number" 
-                                    step="0.01" 
-                                    value={bidPrice}
-                                    onChange={(e) => setBidPrice(e.target.value)}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="bidLeadTime">Lead Time Bid (Days)</Label>
-                                  <Input 
-                                    id="bidLeadTime" 
-                                    type="number"
-                                    value={bidLeadTime}
-                                    onChange={(e) => setBidLeadTime(e.target.value)}
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                  <Label htmlFor="bidComments">Capacity / Execution Strategy</Label>
-                                  <Textarea 
-                                    id="bidComments"
-                                    rows={3}
-                                    placeholder="Brief details regarding plant capacity, freight methods or certifications..."
-                                    value={bidComments}
-                                    onChange={(e) => setBidComments(e.target.value)}
-                                  />
-                              </div>
-
-                              <div className="flex gap-3 justify-end">
-                                <Button type="button" variant="ghost" size="sm" onClick={() => setBiddingRfqId(null)}>Cancel</Button>
-                                <Button type="submit" disabled={submittingBid} size="sm" className="bg-cyan-500 hover:bg-cyan-600 text-slate-950 font-bold">
-                                  {submittingBid ? "Sending..." : "Submit Bid"}
-                                </Button>
-                              </div>
-                            </motion.form>
-                          )}
-
-                        </CardContent>
-                      </Card>
-                    ))
-                  )}
-                </motion.div>
-              )}
-
-              {/* Tab 2: Performance Scorecard */}
-              {activeTab === "performance" && (
-                <motion.div
-                  key="performance"
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -15 }}
-                  className="space-y-6"
-                >
-                  <Card className="card-base">
-                    <CardHeader>
-                      <CardTitle className="text-base font-bold flex items-center gap-2">
-                        <TrendingUp className="h-5 w-5 text-primary" />
-                        Performance Scorecard Summary
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6">
-                      
-                      {/* Metric Dashboard */}
-                      <div className="grid grid-cols-3 gap-6 text-center">
-                        <div className="bg-secondary/40 p-4 rounded-xl border border-border">
-                          <CheckCircle className="h-6 w-6 text-emerald-400 mx-auto mb-2" />
-                          <p className="text-2xl font-black text-foreground">{currentProfile.otd}</p>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">On-Time Delivery</p>
-                        </div>
-                        <div className="bg-secondary/40 p-4 rounded-xl border border-border">
-                          <AlertOctagon className="h-6 w-6 text-cyan-400 mx-auto mb-2" />
-                          <p className="text-2xl font-black text-foreground">{currentProfile.defect}</p>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">Defect Rate</p>
-                        </div>
-                        <div className="bg-secondary/40 p-4 rounded-xl border border-border">
-                          <Clock className="h-6 w-6 text-indigo-400 mx-auto mb-2" />
-                          <p className="text-2xl font-black text-foreground">{currentProfile.passRate}</p>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">Inspection Pass Rate</p>
-                        </div>
+              {/* Trip Cards */}
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {trips.map(t => (
+                  <Card key={t.id} className={`card-base border ${t.status === 'Delayed' ? 'border-amber-500/30' : 'border-border'}`}>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex justify-between items-start">
+                        <span className="text-xs font-mono font-bold text-primary">{t.id}</span>
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${
+                          t.status === 'In Transit' ? 'bg-cyan-500/10 text-cyan-400' :
+                          t.status === 'Delayed' ? 'bg-amber-500/10 text-amber-400' :
+                          t.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400' :
+                          'bg-slate-500/10 text-slate-400'
+                        }`}>{t.status}</span>
                       </div>
-
-                      <div className="mt-8 space-y-4">
-                        <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Active Logistics Routes</h4>
-                        <div className="border border-border/80 rounded-xl bg-slate-950/80 p-4 relative shadow-inner">
-                          <canvas ref={canvasRef} className="w-full block" />
-                          <div className="absolute top-4 left-4 bg-slate-900/90 border border-border/60 px-2 py-1 rounded text-[10px] font-bold text-emerald-400 flex items-center gap-1">
-                            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-                            Active Dispatch Route
-                          </div>
-                        </div>
+                      <p className="text-sm font-semibold">{t.product_name}</p>
+                      <div className="text-xs text-muted-foreground">{t.source_location} → {t.destination_location}</div>
+                      <div className="flex justify-between text-xs">
+                        <span>{t.quantity} units</span>
+                        <span>Driver: {t.driver_id}</span>
                       </div>
-
+                      <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
+                        <div className="bg-primary h-full rounded-full" style={{ width: `${t.current_progress}%` }} />
+                      </div>
                     </CardContent>
                   </Card>
-                </motion.div>
-              )}
+                ))}
+              </div>
+            </motion.div>
+          )}
 
-              {/* Tab 3: SLA Alerts */}
-              {activeTab === "sla" && (
-                <motion.div
-                  key="sla"
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -15 }}
-                  className="space-y-6"
-                >
-                  <Card className="card-base">
-                    <CardHeader>
-                      <CardTitle className="text-base font-bold text-foreground flex items-center gap-2">
-                        <AlertOctagon className="h-5 w-5 text-amber-500" />
-                        SLA Compliance Monitoring
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-4">
-                      {currentProfile.slaStatus === 'Compliant' ? (
-                        <div className="bg-emerald-500/10 border border-emerald-500/20 p-6 rounded-xl text-center space-y-2">
-                          <CheckCircle className="h-10 w-10 text-emerald-400 mx-auto" />
-                          <h4 className="text-sm font-bold text-emerald-400">All Metrics Compliant</h4>
-                          <p className="text-xs text-muted-foreground">Your account is fully compliant with all customer SLA metrics. Maintain high dispatch performance.</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl flex items-start gap-4">
-                            <AlertOctagon className="h-6 w-6 text-amber-400 shrink-0 mt-0.5" />
-                            <div>
-                              <h4 className="text-sm font-bold text-amber-400">Quality Margin Threshold Warning</h4>
-                              <p className="text-xs text-slate-300 mt-1">Inspection pass rate has dropped below target threshold of 98.0%. Active audit required.</p>
-                            </div>
-                          </div>
-                          
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-secondary/40 p-4 rounded-xl border border-border">
-                              <span className="text-[10px] uppercase font-bold text-muted-foreground">Quality Pass Target</span>
-                              <p className="text-lg font-bold mt-1 text-slate-200">98.0%</p>
-                            </div>
-                            <div className="bg-secondary/40 p-4 rounded-xl border border-border">
-                              <span className="text-[10px] uppercase font-bold text-muted-foreground">Your Current Rate</span>
-                              <p className="text-lg font-bold mt-1 text-amber-400">{currentProfile.passRate}</p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              )}
-
-            </AnimatePresence>
-          </div>
-
-          {/* Sidebar Panel - Sourcing Summary */}
-          <div className="lg:col-span-4 space-y-6">
-            
-            <Card className="card-base border border-border bg-card/60 backdrop-blur-md">
-              <CardHeader>
-                <CardTitle className="text-sm font-bold">Supplier Profile Summary</CardTitle>
-              </CardHeader>
-              <CardContent className="p-6 space-y-4">
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Supplier ID:</span>
-                    <span className="font-mono font-bold text-foreground">{currentProfile.id}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Org Name:</span>
-                    <span className="font-bold text-foreground">{currentProfile.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">SLA Status:</span>
-                    <span className={`font-semibold px-2 py-0.5 rounded text-xs ${
-                      currentProfile.slaStatus === 'Compliant' ? 'bg-emerald-500/10 text-emerald-400' :
-                      currentProfile.slaStatus === 'Warning' ? 'bg-amber-500/10 text-amber-400' :
-                      'bg-red-500/10 text-red-400'
-                    }`}>{currentProfile.slaStatus}</span>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-border space-y-2">
-                  <span className="text-[10px] uppercase font-bold text-muted-foreground">Compliance Rating</span>
-                  <div className="flex gap-2 items-center">
-                    <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden border border-border">
-                      <div 
-                        className={`h-full rounded-full ${
-                          currentProfile.slaStatus === 'Compliant' ? 'bg-emerald-500' :
-                          currentProfile.slaStatus === 'Warning' ? 'bg-amber-500' : 'bg-red-500'
-                        }`}
-                        style={{ width: currentProfile.slaStatus === 'Compliant' ? '98%' : currentProfile.slaStatus === 'Warning' ? '80%' : '65%' }}
-                      />
+          {/* Dispatch Tab */}
+          {activeTab === 'dispatch' && (
+            <motion.div key="dispatch" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }}>
+              <Card className="card-base max-w-2xl">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="text-base font-bold flex items-center gap-2"><Send className="h-5 w-5 text-primary" /> Create Dispatch Invoice</CardTitle>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <form onSubmit={handleDispatch} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Product Name</Label>
+                        <Input placeholder="e.g. Industrial Capacitors" value={dispProduct} onChange={e => setDispProduct(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Quantity</Label>
+                        <Input type="number" value={dispQty} onChange={e => setDispQty(e.target.value)} />
+                      </div>
                     </div>
-                    <span className="text-xs font-bold">{currentProfile.slaStatus === 'Compliant' ? '98%' : currentProfile.slaStatus === 'Warning' ? '80%' : '65%'}</span>
+                    <div className="space-y-2">
+                      <Label>Assign Driver</Label>
+                      <Select value={dispDriver} onValueChange={setDispDriver}>
+                        <SelectTrigger><SelectValue placeholder="Select driver" /></SelectTrigger>
+                        <SelectContent>
+                          {drivers.map(d => (
+                            <SelectItem key={d.id} value={d.id} disabled={d.status !== 'Available'}>
+                              {d.name} ({d.truck_no}) — {d.status === 'Available' ? 'Free' : d.status}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Source Location</Label>
+                        <Select value={dispSource} onValueChange={setDispSource}>
+                          <SelectTrigger><SelectValue placeholder="Pick source" /></SelectTrigger>
+                          <SelectContent>{graphNodes.map(n => <SelectItem key={n.name} value={n.name}>{n.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Destination</Label>
+                        <Select value={dispDest} onValueChange={setDispDest}>
+                          <SelectTrigger><SelectValue placeholder="Pick destination" /></SelectTrigger>
+                          <SelectContent>{graphNodes.map(n => <SelectItem key={n.name} value={n.name}>{n.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="bg-secondary/40 p-3 rounded-lg border border-border text-xs text-muted-foreground">
+                      <Route className="h-3.5 w-3.5 inline mr-1 text-primary" />
+                      The system will automatically calculate the <strong>optimal Dijkstra route</strong> and assign GPS coordinates.
+                    </div>
+                    <Button type="submit" disabled={dispSubmitting} className="w-full bg-primary hover:bg-primary/90 font-bold">
+                      {dispSubmitting ? 'Calculating Route...' : 'Create Trip & Calculate Route'}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Drivers Tab */}
+          {activeTab === 'drivers' && (
+            <motion.div key="drivers" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }}>
+              <Card className="card-base">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="text-base font-bold flex items-center gap-2"><Truck className="h-5 w-5 text-primary" /> Driver Fleet ({drivers.length})</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y divide-border">
+                    {drivers.map(d => (
+                      <div key={d.id} className="p-4 flex justify-between items-center">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono font-bold text-primary">{d.id}</span>
+                            <span className="font-semibold text-foreground">{d.name}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{d.truck_no} • {d.phone}</p>
+                        </div>
+                        <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
+                          d.status === 'On Trip' ? 'bg-cyan-500/10 text-cyan-400' :
+                          d.status === 'Available' ? 'bg-emerald-500/10 text-emerald-400' :
+                          'bg-slate-500/10 text-slate-400'
+                        }`}>{d.status}</span>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
 
-          </div>
-
-        </div>
-
+          {/* History Tab */}
+          {activeTab === 'history' && (
+            <motion.div key="history" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }}>
+              <Card className="card-base">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="text-base font-bold flex items-center gap-2"><Building2 className="h-5 w-5 text-primary" /> Completed & Historical Deliveries</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left text-muted-foreground">
+                      <thead className="text-xs uppercase bg-secondary/50 text-foreground border-b border-border">
+                        <tr>
+                          <th className="px-6 py-4 font-bold">Trip ID / Date</th>
+                          <th className="px-6 py-4 font-bold">Product Details</th>
+                          <th className="px-6 py-4 font-bold">Supplier Company</th>
+                          <th className="px-6 py-4 font-bold">Destination Address</th>
+                          <th className="px-6 py-4 font-bold">Driver Info</th>
+                          <th className="px-6 py-4 font-bold">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {trips.map(t => {
+                          const driver = drivers.find(d => d.id === t.driver_id);
+                          return (
+                            <tr key={t.id} className="hover:bg-secondary/20 transition-colors">
+                              <td className="px-6 py-4">
+                                <div className="font-mono font-bold text-primary">{t.id}</div>
+                                <div className="text-xs text-muted-foreground mt-0.5">
+                                  {t.est_arrival ? new Date(t.est_arrival).toLocaleDateString() : 'N/A'}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 text-foreground font-medium">
+                                <div>{t.product_name}</div>
+                                <div className="text-xs text-muted-foreground mt-0.5">{t.quantity} units</div>
+                              </td>
+                              <td className="px-6 py-4 text-foreground">
+                                ElectroDrive Support
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="text-foreground font-medium">{t.destination_location}</div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <div className="text-foreground font-medium">{driver?.name || 'Kunal Wandhare'}</div>
+                                <div className="text-xs text-muted-foreground mt-0.5">{driver?.phone || '+91-9876543210'}</div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`px-2 py-0.5 text-xs font-bold rounded ${
+                                  t.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                                  t.status === 'In Transit' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' :
+                                  t.status === 'Delayed' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                  'bg-slate-500/10 text-slate-400 border border-slate-500/20'
+                                }`}>
+                                  {t.status}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {trips.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="text-center py-8 text-muted-foreground">No historical records found.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </MainLayout>
   );

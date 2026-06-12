@@ -195,8 +195,15 @@ def seed_drivers_and_trips(session):
 
 
 def seed_data():
-    # Drop and recreate tables (schema changed)
-    SQLModel.metadata.drop_all(engine)
+    # Drop and recreate tables using CASCADE to handle dependent objects in Supabase
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        print("Dropping public schema with CASCADE...")
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+        conn.execute(text("GRANT ALL ON SCHEMA public TO postgres"))
+        conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
+        conn.commit()
     create_db_and_tables()
     
     with Session(engine) as session:

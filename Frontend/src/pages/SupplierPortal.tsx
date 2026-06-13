@@ -1,388 +1,598 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import {
-  Building2, TrendingUp, CheckCircle, Clock, AlertOctagon, Send,
-  MapPin, Truck, Package, Route, AlertTriangle, Plus
+  Building2, TrendingUp, AlertTriangle, MapPin, Package,
+  FileText, Navigation, Loader2, CheckCircle2, XCircle,
+  CloudRain, Newspaper, BarChart3, RefreshCw, Clock, Zap
 } from 'lucide-react';
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-});
-
-interface DriverData { id: string; name: string; phone: string; truck_no: string; status: string; current_lat: number; current_lng: number; supplier_id: string; }
-interface TripData { id: string; product_name: string; quantity: number; driver_id: string; supplier_id: string; source_location: string; source_lat: number; source_lng: number; destination_location: string; destination_lat: number; destination_lng: number; status: string; route_json: string; current_progress: number; est_arrival: string; }
-interface RouteCoord { lat: number; lng: number; name: string; }
-interface GraphNode { name: string; lat: number; lng: number; }
-
-const truckIcon = new L.DivIcon({
-  html: `<div style="background:#1e1b4b;border:3px solid #22d3ee;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 10px rgba(34,211,238,0.5)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2.5"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></div>`,
-  className: '', iconSize: [24, 24], iconAnchor: [12, 12],
-});
-
-function FitBounds({ points }: { points: [number, number][] }) {
-  const map = useMap();
-  useEffect(() => {
-    if (points.length > 1) map.fitBounds(L.latLngBounds(points.map(p => L.latLng(p[0], p[1]))), { padding: [40, 40] });
-  }, [points, map]);
-  return null;
+interface RouteReport {
+  report_id: string;
+  source: string;
+  destination: string;
+  risk_score: number;
+  reliability_score: number;
+  delay_probability: number;
+  estimated_transit_days: number;
+  weather_analysis: any;
+  news_analysis: any;
+  infrastructure_analysis: any;
+  historical_sla_analysis: any;
+  recommendation: string;
+  rfq_id?: string;
+  created_at: string;
 }
 
+interface RFQ {
+  id: string;
+  part_sku: string;
+  quantity: number;
+  target_delivery_days: number;
+  delivery_location: string;
+  status: string;
+  created_at: string;
+}
+
+const RISK_COLOR = (score: number) => {
+  if (score >= 70) return 'text-red-400';
+  if (score >= 40) return 'text-amber-400';
+  return 'text-emerald-400';
+};
+
+const RISK_BG = (score: number) => {
+  if (score >= 70) return 'bg-red-500/10 border-red-500/30';
+  if (score >= 40) return 'bg-amber-500/10 border-amber-500/30';
+  return 'bg-emerald-500/10 border-emerald-500/30';
+};
+
+const ScoreGauge = ({ value, label, color }: { value: number; label: string; color: string }) => (
+  <div className="flex flex-col items-center gap-1">
+    <div className="relative w-20 h-20">
+      <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+        <circle cx="40" cy="40" r="32" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+        <circle
+          cx="40" cy="40" r="32"
+          fill="none" stroke={color} strokeWidth="8"
+          strokeDasharray={`${(value / 100) * 201} 201`}
+          strokeLinecap="round"
+          style={{ transition: 'stroke-dasharray 1s ease' }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-lg font-bold text-foreground">{Math.round(value)}</span>
+      </div>
+    </div>
+    <span className="text-xs text-muted-foreground font-medium">{label}</span>
+  </div>
+);
+
 export default function SupplierPortal() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tabParam = searchParams.get('tab') as 'fleet' | 'dispatch' | 'drivers' | 'history' | null;
-  const activeTab = tabParam || 'fleet';
+  const SUPPLIER_ID = 'SUP001'; // In production: get from auth context
 
-  const setActiveTab = (tab: 'fleet' | 'dispatch' | 'drivers' | 'history') => {
-    setSearchParams({ tab });
-  };
-  const [drivers, setDrivers] = useState<DriverData[]>([]);
-  const [trips, setTrips] = useState<TripData[]>([]);
-  const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
-  const [loading, setLoading] = useState(true);
+  const tabs = ['overview', 'route-intelligence', 'rfqs', 'documents'] as const;
+  type Tab = typeof tabs[number];
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
 
-  // Dispatch form
-  const [dispProduct, setDispProduct] = useState('');
-  const [dispQty, setDispQty] = useState('100');
-  const [dispDriver, setDispDriver] = useState('');
-  const [dispSource, setDispSource] = useState('');
-  const [dispDest, setDispDest] = useState('');
-  const [dispSubmitting, setDispSubmitting] = useState(false);
+  // Route Intelligence state
+  const [source, setSource] = useState('');
+  const [destination, setDestination] = useState('');
+  const [selectedRfqId, setSelectedRfqId] = useState('');
+  const [analyzing, setAnalyzing] = useState(false);
+  const [routeReports, setRouteReports] = useState<RouteReport[]>([]);
+  const [selectedReport, setSelectedReport] = useState<RouteReport | null>(null);
+  const [loadingReports, setLoadingReports] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  // RFQ state
+  const [rfqs, setRfqs] = useState<RFQ[]>([]);
+  const [loadingRfqs, setLoadingRfqs] = useState(false);
+
+  const fetchRouteReports = async () => {
+    setLoadingReports(true);
     try {
-      const [driversRes, tripsRes, nodesRes] = await Promise.all([
-        api.get('/drivers'), api.get('/trips'), api.get('/route/nodes'),
-      ]);
-      setDrivers(driversRes.data);
-      setTrips(tripsRes.data);
-      setGraphNodes(nodesRes.data.nodes);
+      const res = await api.get(`/route-intelligence/supplier/${SUPPLIER_ID}`);
+      setRouteReports(res.data.reports || []);
     } catch {
-      // Fallback demo data
-      setDrivers([
-        { id: 'DRV-001', name: 'Kunal Wandhare', phone: '+91-9876543210', truck_no: 'MH-12-QW-5678', status: 'On Trip', current_lat: 19.2183, current_lng: 72.9781, supplier_id: 'SUP001' },
-        { id: 'DRV-002', name: 'Rajesh Sharma', phone: '+91-9123456789', truck_no: 'MH-04-AB-1234', status: 'Available', current_lat: 18.9388, current_lng: 72.8354, supplier_id: 'SUP001' },
-      ]);
-      setTrips([{
-        id: 'TRIP-0001', product_name: 'Industrial Capacitors', quantity: 500, driver_id: 'DRV-001', supplier_id: 'SUP001',
-        source_location: 'Thane Warehouse', source_lat: 19.2183, source_lng: 72.9781,
-        destination_location: 'Pimpri Chinchwad Plant', destination_lat: 18.6278, destination_lng: 73.8131,
-        status: 'In Transit', route_json: JSON.stringify([
-          { lat: 19.2183, lng: 72.9781, name: 'Thane Warehouse' },
-          { lat: 19.0330, lng: 73.0297, name: 'Navi Mumbai Hub' },
-          { lat: 18.9894, lng: 73.1175, name: 'Panvel Junction' },
-          { lat: 18.7860, lng: 73.3414, name: 'Khopoli Depot' },
-          { lat: 18.7546, lng: 73.4063, name: 'Lonavala Junction' },
-          { lat: 18.7350, lng: 73.6757, name: 'Talegaon Depot' },
-          { lat: 18.6278, lng: 73.8131, name: 'Pimpri Chinchwad Plant' },
-        ]), current_progress: 35, est_arrival: '2026-06-11T14:00:00',
-      }]);
-      setGraphNodes([
-        { name: 'Mumbai Port', lat: 18.9388, lng: 72.8354 },
-        { name: 'Thane Warehouse', lat: 19.2183, lng: 72.9781 },
-        { name: 'Navi Mumbai Hub', lat: 19.0330, lng: 73.0297 },
-        { name: 'Pimpri Chinchwad Plant', lat: 18.6278, lng: 73.8131 },
-        { name: 'Pune Chakan MIDC', lat: 18.7606, lng: 73.8600 },
-        { name: 'Pune City Center', lat: 18.5204, lng: 73.8567 },
-        { name: 'Bhiwandi Logistics', lat: 19.2967, lng: 73.0631 },
-      ]);
-    } finally { setLoading(false); }
+      setRouteReports([]);
+    } finally {
+      setLoadingReports(false);
+    }
+  };
+
+  const fetchRfqs = async () => {
+    setLoadingRfqs(true);
+    try {
+      const res = await api.get('/rfqs');
+      setRfqs((res.data || []).filter((r: RFQ) => r.status !== 'Rejected'));
+    } catch {
+      setRfqs([]);
+    } finally {
+      setLoadingRfqs(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRouteReports();
+    fetchRfqs();
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  const handleDispatch = async (e: React.FormEvent) => {
+  const handleAnalyzeRoute = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!dispProduct || !dispDriver || !dispSource || !dispDest) { toast.error('Fill all fields'); return; }
-    setDispSubmitting(true);
+    if (!source.trim() || !destination.trim()) {
+      toast.error('Please enter both Source and Destination');
+      return;
+    }
+    setAnalyzing(true);
     try {
-      await api.post('/trips', {
-        product_name: dispProduct, quantity: parseInt(dispQty),
-        driver_id: dispDriver, source_location: dispSource, destination_location: dispDest,
+      const res = await api.post('/route-intelligence/analyze', {
+        supplier_id: SUPPLIER_ID,
+        source: source.trim(),
+        destination: destination.trim(),
+        rfq_id: selectedRfqId || null,
       });
-      toast.success('Trip created! Dijkstra route calculated automatically.');
-      setDispProduct(''); setDispQty('100');
-      fetchData();
+      toast.success('Route analysis complete!');
+      setSelectedReport(res.data);
+      await fetchRouteReports();
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Failed to create trip');
-    } finally { setDispSubmitting(false); }
+      toast.error(err?.response?.data?.detail || 'Route analysis failed');
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
-  // Build map points from all trips
-  const allMapPoints: [number, number][] = [];
-  const tripRoutes: { coords: [number, number][]; status: string; id: string }[] = [];
-  trips.forEach(t => {
-    try {
-      const coords: RouteCoord[] = JSON.parse(t.route_json || '[]');
-      const path: [number, number][] = coords.map(c => [c.lat, c.lng]);
-      tripRoutes.push({ coords: path, status: t.status, id: t.id });
-      path.forEach(p => allMapPoints.push(p));
-    } catch {}
-  });
-  drivers.forEach(d => { if (d.current_lat) allMapPoints.push([d.current_lat, d.current_lng]); });
-
-  if (loading) return <MainLayout><div className="flex items-center justify-center min-h-screen"><div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" /></div></MainLayout>;
+  const tabLabels: Record<Tab, { label: string; icon: React.ReactNode }> = {
+    'overview': { label: 'Overview', icon: <Building2 className="h-4 w-4" /> },
+    'route-intelligence': { label: 'Route Intelligence', icon: <Navigation className="h-4 w-4" /> },
+    'rfqs': { label: 'My RFQs', icon: <FileText className="h-4 w-4" /> },
+    'documents': { label: 'Documents', icon: <Package className="h-4 w-4" /> },
+  };
 
   return (
     <MainLayout>
       <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto">
+        {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-extrabold text-foreground tracking-tight flex items-center gap-2">
-              <Building2 className="h-8 w-8 text-primary" />
+            <h1 className="text-3xl font-extrabold text-foreground tracking-tight flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                <Building2 className="h-5 w-5 text-primary" />
+              </div>
               Supplier Command Center
             </h1>
-            <p className="text-muted-foreground mt-1">Fleet tracking, dispatch management, and route intelligence.</p>
+            <p className="text-muted-foreground mt-1">AI-powered supply chain intelligence for your business</p>
           </div>
           <div className="flex gap-2">
-            <span className="text-sm bg-secondary px-3 py-1.5 rounded-lg border border-border font-semibold">{drivers.length} Drivers</span>
-            <span className="text-sm bg-secondary px-3 py-1.5 rounded-lg border border-border font-semibold">{trips.filter(t => t.status === 'In Transit').length} Active Trips</span>
+            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 px-3 py-1">
+              <span className="w-2 h-2 bg-emerald-400 rounded-full mr-2 animate-pulse inline-block" />
+              Active Supplier
+            </Badge>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-border gap-6">
-          {(['fleet', 'dispatch', 'drivers', 'history'] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`pb-3 text-sm font-semibold border-b-2 transition-all capitalize ${activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
-              {tab === 'fleet' ? '🗺️ Fleet Map' : tab === 'dispatch' ? '📦 Dispatch Trip' : tab === 'drivers' ? '🚛 Drivers' : '📜 Delivery History'}
+        <div className="flex gap-1 border border-border rounded-xl p-1 bg-secondary/20 w-fit">
+          {tabs.map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                activeTab === tab
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tabLabels[tab].icon}
+              {tabLabels[tab].label}
             </button>
           ))}
         </div>
 
         <AnimatePresence mode="wait">
-          {/* Fleet Map Tab */}
-          {activeTab === 'fleet' && (
-            <motion.div key="fleet" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} className="space-y-6">
-              <Card className="card-base overflow-hidden">
-                <CardHeader className="py-4 border-b border-border bg-primary/5">
-                  <CardTitle className="text-base font-bold flex items-center gap-2"><Route className="h-5 w-5 text-primary" /> Live Fleet & Route Overview (OSM)</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="h-[500px] w-full">
-                    <MapContainer center={[19.0, 73.2]} zoom={9} className="h-full w-full" style={{ height: '500px' }}>
-                      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" {...({ attribution: '&copy; OpenStreetMap' } as any)} />
-                      {allMapPoints.length > 1 && <FitBounds points={allMapPoints} />}
-
-                      {tripRoutes.map(tr => (
-                        <Polyline key={tr.id} positions={tr.coords} pathOptions={{
-                          color: tr.status === 'Delayed' ? '#ef4444' : tr.status === 'In Transit' ? '#22d3ee' : tr.status === 'Completed' ? '#10b981' : '#94a3b8',
-                          weight: 4, opacity: 0.8,
-                        }} />
-                      ))}
-
-                      {drivers.filter(d => d.current_lat).map(d => (
-                        <Marker key={d.id} position={[d.current_lat, d.current_lng] as L.LatLngExpression} {...({ icon: truckIcon } as any)}>
-                          <Popup><strong>{d.name}</strong><br />{d.truck_no}<br />Status: {d.status}</Popup>
-                        </Marker>
-                      ))}
-                    </MapContainer>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Trip Cards */}
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {trips.map(t => (
-                  <Card key={t.id} className={`card-base border ${t.status === 'Delayed' ? 'border-amber-500/30' : 'border-border'}`}>
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex justify-between items-start">
-                        <span className="text-xs font-mono font-bold text-primary">{t.id}</span>
-                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${
-                          t.status === 'In Transit' ? 'bg-cyan-500/10 text-cyan-400' :
-                          t.status === 'Delayed' ? 'bg-amber-500/10 text-amber-400' :
-                          t.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400' :
-                          'bg-slate-500/10 text-slate-400'
-                        }`}>{t.status}</span>
-                      </div>
-                      <p className="text-sm font-semibold">{t.product_name}</p>
-                      <div className="text-xs text-muted-foreground">{t.source_location} → {t.destination_location}</div>
-                      <div className="flex justify-between text-xs">
-                        <span>{t.quantity} units</span>
-                        <span>Driver: {t.driver_id}</span>
-                      </div>
-                      <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-primary h-full rounded-full" style={{ width: `${t.current_progress}%` }} />
+          {/* ─── Overview Tab ────────────────────────────────── */}
+          {activeTab === 'overview' && (
+            <motion.div key="overview" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  { label: 'Route Reports', value: routeReports.length, icon: <Navigation className="h-5 w-5" />, color: 'text-primary' },
+                  { label: 'Active RFQs', value: rfqs.filter(r => r.status === 'Sent' || r.status === 'Draft').length, icon: <FileText className="h-5 w-5" />, color: 'text-amber-400' },
+                  { label: 'Avg Route Risk', value: routeReports.length ? `${Math.round(routeReports.reduce((a, r) => a + r.risk_score, 0) / routeReports.length)}` : 'N/A', icon: <AlertTriangle className="h-5 w-5" />, color: 'text-red-400' },
+                ].map((stat) => (
+                  <Card key={stat.label} className="card-base">
+                    <CardContent className="p-6 flex items-center gap-4">
+                      <div className={`p-3 rounded-xl bg-secondary ${stat.color}`}>{stat.icon}</div>
+                      <div>
+                        <p className="text-2xl font-bold text-foreground">{stat.value}</p>
+                        <p className="text-sm text-muted-foreground">{stat.label}</p>
                       </div>
                     </CardContent>
                   </Card>
                 ))}
               </div>
+
+              {/* Recent Route Reports */}
+              <Card className="card-base">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="text-base font-bold flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-primary" /> Recent Route Intelligence Reports
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {loadingReports ? (
+                    <div className="flex justify-center items-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+                  ) : routeReports.length === 0 ? (
+                    <div className="py-12 text-center text-muted-foreground">
+                      <Navigation className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                      <p>No route reports yet. Run an analysis from the Route Intelligence tab.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {routeReports.slice(0, 5).map(report => (
+                        <div key={report.report_id} className="p-4 hover:bg-secondary/20 transition-colors">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <MapPin className="h-3.5 w-3.5 text-primary" />
+                                <span className="font-semibold text-sm">{report.source} → {report.destination}</span>
+                              </div>
+                              <p className="text-xs text-muted-foreground">{new Date(report.created_at).toLocaleString()}</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <p className={`text-lg font-bold ${RISK_COLOR(report.risk_score)}`}>{Math.round(report.risk_score)}</p>
+                                <p className="text-[10px] text-muted-foreground">Risk Score</p>
+                              </div>
+                              <button
+                                onClick={() => { setSelectedReport(report); setActiveTab('route-intelligence'); }}
+                                className="text-xs text-primary hover:underline"
+                              >
+                                View →
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </motion.div>
           )}
 
-          {/* Dispatch Tab */}
-          {activeTab === 'dispatch' && (
-            <motion.div key="dispatch" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }}>
-              <Card className="card-base max-w-2xl">
-                <CardHeader className="border-b border-border">
-                  <CardTitle className="text-base font-bold flex items-center gap-2"><Send className="h-5 w-5 text-primary" /> Create Dispatch Invoice</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <form onSubmit={handleDispatch} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Product Name</Label>
-                        <Input placeholder="e.g. Industrial Capacitors" value={dispProduct} onChange={e => setDispProduct(e.target.value)} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Quantity</Label>
-                        <Input type="number" value={dispQty} onChange={e => setDispQty(e.target.value)} />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Assign Driver</Label>
-                      <Select value={dispDriver} onValueChange={setDispDriver}>
-                        <SelectTrigger><SelectValue placeholder="Select driver" /></SelectTrigger>
-                        <SelectContent>
-                          {drivers.map(d => (
-                            <SelectItem key={d.id} value={d.id} disabled={d.status !== 'Available'}>
-                              {d.name} ({d.truck_no}) — {d.status === 'Available' ? 'Free' : d.status}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
+          {/* ─── Route Intelligence Tab ──────────────────────── */}
+          {activeTab === 'route-intelligence' && (
+            <motion.div key="route" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                {/* Analysis Form */}
+                <Card className="card-base lg:col-span-2">
+                  <CardHeader className="border-b border-border">
+                    <CardTitle className="text-base font-bold flex items-center gap-2">
+                      <Zap className="h-5 w-5 text-primary" /> Analyze Route
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6">
+                    <form onSubmit={handleAnalyzeRoute} className="space-y-4">
                       <div className="space-y-2">
                         <Label>Source Location</Label>
-                        <Select value={dispSource} onValueChange={setDispSource}>
-                          <SelectTrigger><SelectValue placeholder="Pick source" /></SelectTrigger>
-                          <SelectContent>{graphNodes.map(n => <SelectItem key={n.name} value={n.name}>{n.name}</SelectItem>)}</SelectContent>
-                        </Select>
+                        <Input
+                          placeholder="e.g. Mumbai Port, Thane Warehouse"
+                          value={source}
+                          onChange={e => setSource(e.target.value)}
+                          className="bg-secondary/40"
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label>Destination</Label>
-                        <Select value={dispDest} onValueChange={setDispDest}>
-                          <SelectTrigger><SelectValue placeholder="Pick destination" /></SelectTrigger>
-                          <SelectContent>{graphNodes.map(n => <SelectItem key={n.name} value={n.name}>{n.name}</SelectItem>)}</SelectContent>
-                        </Select>
+                        <Input
+                          placeholder="e.g. Pune Chakan MIDC, Delhi NCR"
+                          value={destination}
+                          onChange={e => setDestination(e.target.value)}
+                          className="bg-secondary/40"
+                        />
                       </div>
-                    </div>
-                    <div className="bg-secondary/40 p-3 rounded-lg border border-border text-xs text-muted-foreground">
-                      <Route className="h-3.5 w-3.5 inline mr-1 text-primary" />
-                      The system will automatically calculate the <strong>optimal Dijkstra route</strong> and assign GPS coordinates.
-                    </div>
-                    <Button type="submit" disabled={dispSubmitting} className="w-full bg-primary hover:bg-primary/90 font-bold">
-                      {dispSubmitting ? 'Calculating Route...' : 'Create Trip & Calculate Route'}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-
-          {/* Drivers Tab */}
-          {activeTab === 'drivers' && (
-            <motion.div key="drivers" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }}>
-              <Card className="card-base">
-                <CardHeader className="border-b border-border">
-                  <CardTitle className="text-base font-bold flex items-center gap-2"><Truck className="h-5 w-5 text-primary" /> Driver Fleet ({drivers.length})</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="divide-y divide-border">
-                    {drivers.map(d => (
-                      <div key={d.id} className="p-4 flex justify-between items-center">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono font-bold text-primary">{d.id}</span>
-                            <span className="font-semibold text-foreground">{d.name}</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">{d.truck_no} • {d.phone}</p>
-                        </div>
-                        <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
-                          d.status === 'On Trip' ? 'bg-cyan-500/10 text-cyan-400' :
-                          d.status === 'Available' ? 'bg-emerald-500/10 text-emerald-400' :
-                          'bg-slate-500/10 text-slate-400'
-                        }`}>{d.status}</span>
+                      <div className="space-y-2">
+                        <Label>Link to RFQ (Optional)</Label>
+                        <select
+                          className="w-full border border-border rounded-md px-3 py-2 text-sm bg-secondary/40 text-foreground"
+                          value={selectedRfqId}
+                          onChange={e => setSelectedRfqId(e.target.value)}
+                        >
+                          <option value="">-- No RFQ --</option>
+                          {rfqs.map(rfq => (
+                            <option key={rfq.id} value={rfq.id}>{rfq.id} · {rfq.part_sku}</option>
+                          ))}
+                        </select>
                       </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-
-          {/* History Tab */}
-          {activeTab === 'history' && (
-            <motion.div key="history" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }}>
-              <Card className="card-base">
-                <CardHeader className="border-b border-border">
-                  <CardTitle className="text-base font-bold flex items-center gap-2"><Building2 className="h-5 w-5 text-primary" /> Completed & Historical Deliveries</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left text-muted-foreground">
-                      <thead className="text-xs uppercase bg-secondary/50 text-foreground border-b border-border">
-                        <tr>
-                          <th className="px-6 py-4 font-bold">Trip ID / Date</th>
-                          <th className="px-6 py-4 font-bold">Product Details</th>
-                          <th className="px-6 py-4 font-bold">Supplier Company</th>
-                          <th className="px-6 py-4 font-bold">Destination Address</th>
-                          <th className="px-6 py-4 font-bold">Driver Info</th>
-                          <th className="px-6 py-4 font-bold">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {trips.map(t => {
-                          const driver = drivers.find(d => d.id === t.driver_id);
-                          return (
-                            <tr key={t.id} className="hover:bg-secondary/20 transition-colors">
-                              <td className="px-6 py-4">
-                                <div className="font-mono font-bold text-primary">{t.id}</div>
-                                <div className="text-xs text-muted-foreground mt-0.5">
-                                  {t.est_arrival ? new Date(t.est_arrival).toLocaleDateString() : 'N/A'}
-                                </div>
-                              </td>
-                              <td className="px-6 py-4 text-foreground font-medium">
-                                <div>{t.product_name}</div>
-                                <div className="text-xs text-muted-foreground mt-0.5">{t.quantity} units</div>
-                              </td>
-                              <td className="px-6 py-4 text-foreground">
-                                ElectroDrive Support
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="text-foreground font-medium">{t.destination_location}</div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="text-foreground font-medium">{driver?.name || 'Kunal Wandhare'}</div>
-                                <div className="text-xs text-muted-foreground mt-0.5">{driver?.phone || '+91-9876543210'}</div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <span className={`px-2 py-0.5 text-xs font-bold rounded ${
-                                  t.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                                  t.status === 'In Transit' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' :
-                                  t.status === 'Delayed' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                                  'bg-slate-500/10 text-slate-400 border border-slate-500/20'
-                                }`}>
-                                  {t.status}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                        {trips.length === 0 && (
-                          <tr>
-                            <td colSpan={6} className="text-center py-8 text-muted-foreground">No historical records found.</td>
-                          </tr>
+                      <div className="p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs text-muted-foreground space-y-1">
+                        <p className="font-semibold text-primary">AI Analysis includes:</p>
+                        <p>☁️ Weather (Open-Meteo 7-day forecast)</p>
+                        <p>📰 News disruption intelligence (NewsAPI)</p>
+                        <p>📊 SLA & delivery history from Supabase</p>
+                        <p>🤖 LLM-powered route recommendation</p>
+                      </div>
+                      <Button type="submit" disabled={analyzing} className="w-full bg-primary hover:bg-primary/90 font-bold">
+                        {analyzing ? (
+                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Analyzing Route...</>
+                        ) : (
+                          <><Navigation className="h-4 w-4 mr-2" />Run AI Route Analysis</>
                         )}
-                      </tbody>
-                    </table>
-                  </div>
+                      </Button>
+                    </form>
+
+                    {/* Past Reports List */}
+                    <div className="mt-6 space-y-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Past Reports</p>
+                        <button onClick={fetchRouteReports} className="text-primary hover:text-primary/80">
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {routeReports.length === 0 ? (
+                        <p className="text-xs text-muted-foreground py-2">No reports yet</p>
+                      ) : (
+                        routeReports.map(report => (
+                          <button
+                            key={report.report_id}
+                            onClick={() => setSelectedReport(report)}
+                            className={`w-full text-left p-3 rounded-lg border transition-all text-xs ${
+                              selectedReport?.report_id === report.report_id
+                                ? 'border-primary/50 bg-primary/10'
+                                : 'border-border hover:border-primary/30 hover:bg-secondary/40'
+                            }`}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <p className="font-semibold text-foreground truncate max-w-[150px]">{report.source} → {report.destination}</p>
+                                <p className="text-muted-foreground mt-0.5">{new Date(report.created_at).toLocaleDateString()}</p>
+                              </div>
+                              <span className={`font-bold text-base ${RISK_COLOR(report.risk_score)}`}>{Math.round(report.risk_score)}</span>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Report Detail */}
+                <div className="lg:col-span-3">
+                  {!selectedReport ? (
+                    <Card className="card-base h-full flex items-center justify-center">
+                      <div className="text-center text-muted-foreground p-12">
+                        <Navigation className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                        <p className="font-medium">Run an analysis or select a past report</p>
+                        <p className="text-sm mt-1">AI will analyze weather, news, and SLA data in real-time</p>
+                      </div>
+                    </Card>
+                  ) : (
+                    <motion.div key={selectedReport.report_id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
+                      {/* Score Cards */}
+                      <Card className={`card-base border ${RISK_BG(selectedReport.risk_score)}`}>
+                        <CardContent className="p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <div>
+                              <h3 className="text-base font-bold">{selectedReport.source}</h3>
+                              <p className="text-muted-foreground text-sm flex items-center gap-1">
+                                <span>→</span> {selectedReport.destination}
+                              </p>
+                            </div>
+                            <Badge variant="outline" className={`${RISK_BG(selectedReport.risk_score)} font-bold`}>
+                              {selectedReport.risk_score >= 70 ? 'High Risk' : selectedReport.risk_score >= 40 ? 'Medium Risk' : 'Low Risk'}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center justify-around py-4">
+                            <ScoreGauge value={selectedReport.risk_score} label="Risk Score" color="#f87171" />
+                            <ScoreGauge value={selectedReport.reliability_score} label="Reliability" color="#34d399" />
+                            <ScoreGauge value={selectedReport.delay_probability} label="Delay Prob." color="#fbbf24" />
+                            {selectedReport.estimated_transit_days && (
+                              <div className="flex flex-col items-center gap-1">
+                                <div className="flex items-center justify-center w-20 h-20">
+                                  <div className="text-center">
+                                    <p className="text-2xl font-bold text-foreground">{selectedReport.estimated_transit_days.toFixed(1)}</p>
+                                    <p className="text-[10px] text-muted-foreground">days</p>
+                                  </div>
+                                </div>
+                                <span className="text-xs text-muted-foreground font-medium">Transit Time</span>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* AI Recommendation */}
+                      {selectedReport.recommendation && (
+                        <Card className="card-base border border-primary/20 bg-primary/5">
+                          <CardContent className="p-4">
+                            <div className="flex items-start gap-3">
+                              <div className="p-2 rounded-lg bg-primary/10">
+                                <Zap className="h-4 w-4 text-primary" />
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-primary uppercase tracking-wider mb-1">AI Recommendation</p>
+                                <p className="text-sm text-foreground leading-relaxed">{selectedReport.recommendation}</p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* Analysis Details Grid */}
+                      <div className="grid grid-cols-1 gap-4">
+                        {/* Weather */}
+                        <Card className="card-base">
+                          <CardContent className="p-4">
+                            <div className="flex items-center gap-2 mb-3">
+                              <CloudRain className="h-4 w-4 text-blue-400" />
+                              <span className="text-sm font-bold">Weather Intelligence</span>
+                              <Badge variant="outline" className={`ml-auto text-[10px] ${
+                                selectedReport.weather_analysis?.risk_level === 'High' ? 'text-red-400 border-red-500/30' :
+                                selectedReport.weather_analysis?.risk_level === 'Medium' ? 'text-amber-400 border-amber-500/30' :
+                                'text-emerald-400 border-emerald-500/30'
+                              }`}>
+                                {selectedReport.weather_analysis?.risk_level || 'N/A'} Risk
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{selectedReport.weather_analysis?.summary}</p>
+                            {selectedReport.weather_analysis?.locations?.map((loc: any, i: number) => (
+                              <div key={i} className="mt-2 p-2 bg-secondary/30 rounded-lg text-xs">
+                                <span className="font-semibold text-foreground">{loc.location}:</span>{' '}
+                                {loc.condition} · Rain: {loc.max_precipitation_mm}mm · Wind: {loc.max_windspeed_kmh}km/h
+                              </div>
+                            ))}
+                          </CardContent>
+                        </Card>
+
+                        {/* News */}
+                        <Card className="card-base">
+                          <CardContent className="p-4">
+                            <div className="flex items-center gap-2 mb-3">
+                              <Newspaper className="h-4 w-4 text-purple-400" />
+                              <span className="text-sm font-bold">News Intelligence</span>
+                              <Badge variant="outline" className={`ml-auto text-[10px] ${
+                                selectedReport.news_analysis?.risk_level === 'High' ? 'text-red-400 border-red-500/30' :
+                                selectedReport.news_analysis?.risk_level === 'Medium' ? 'text-amber-400 border-amber-500/30' :
+                                'text-emerald-400 border-emerald-500/30'
+                              }`}>
+                                {selectedReport.news_analysis?.risk_level || 'N/A'} Risk
+                              </Badge>
+                            </div>
+                            {selectedReport.news_analysis?.headlines?.length > 0 ? (
+                              <div className="space-y-2">
+                                {selectedReport.news_analysis.headlines.slice(0, 3).map((h: any, i: number) => (
+                                  <div key={i} className="p-2 bg-secondary/30 rounded-lg text-xs">
+                                    <p className="font-medium text-foreground line-clamp-1">{h.title}</p>
+                                    <p className="text-muted-foreground mt-0.5">{h.source} · {new Date(h.published_at).toLocaleDateString()}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">{selectedReport.news_analysis?.summary || 'No disruption news found.'}</p>
+                            )}
+                          </CardContent>
+                        </Card>
+
+                        {/* SLA History */}
+                        <Card className="card-base">
+                          <CardContent className="p-4">
+                            <div className="flex items-center gap-2 mb-3">
+                              <TrendingUp className="h-4 w-4 text-emerald-400" />
+                              <span className="text-sm font-bold">Historical SLA Performance</span>
+                              <Badge variant="outline" className={`ml-auto text-[10px] ${
+                                selectedReport.historical_sla_analysis?.risk_level === 'Critical' ? 'text-red-400 border-red-500/30' :
+                                selectedReport.historical_sla_analysis?.risk_level === 'High' ? 'text-orange-400 border-orange-500/30' :
+                                selectedReport.historical_sla_analysis?.risk_level === 'Medium' ? 'text-amber-400 border-amber-500/30' :
+                                'text-emerald-400 border-emerald-500/30'
+                              }`}>
+                                {selectedReport.historical_sla_analysis?.risk_level || 'N/A'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mb-2">{selectedReport.historical_sla_analysis?.summary}</p>
+                            <div className="flex gap-4 text-xs">
+                              <div className="flex items-center gap-1.5">
+                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                                <span className="text-foreground font-bold">{selectedReport.historical_sla_analysis?.compliant_count ?? 0}</span>
+                                <span className="text-muted-foreground">Compliant</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                                <span className="text-foreground font-bold">{selectedReport.historical_sla_analysis?.warning_count ?? 0}</span>
+                                <span className="text-muted-foreground">Warning</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <XCircle className="h-3.5 w-3.5 text-red-400" />
+                                <span className="text-foreground font-bold">{selectedReport.historical_sla_analysis?.breached_count ?? 0}</span>
+                                <span className="text-muted-foreground">Breached</span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ─── RFQs Tab ────────────────────────────────────── */}
+          {activeTab === 'rfqs' && (
+            <motion.div key="rfqs" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+              <Card className="card-base">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="text-base font-bold flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" /> My RFQs ({rfqs.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {loadingRfqs ? (
+                    <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+                  ) : rfqs.length === 0 ? (
+                    <div className="py-12 text-center text-muted-foreground">
+                      <FileText className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                      <p>No RFQs assigned to you yet.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {rfqs.map(rfq => (
+                        <div key={rfq.id} className="p-5 hover:bg-secondary/20 transition-colors">
+                          <div className="flex items-start justify-between">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-mono font-bold text-primary">{rfq.id}</span>
+                                <Badge variant="outline" className={`text-[10px] ${
+                                  rfq.status === 'Approved' ? 'text-emerald-400 border-emerald-500/30' :
+                                  rfq.status === 'Sent' ? 'text-blue-400 border-blue-500/30' :
+                                  rfq.status === 'Bid_Submitted' ? 'text-purple-400 border-purple-500/30' :
+                                  'text-muted-foreground border-border'
+                                }`}>{rfq.status}</Badge>
+                              </div>
+                              <p className="font-semibold text-foreground">{rfq.part_sku}</p>
+                              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1"><Package className="h-3 w-3" />{rfq.quantity} units</span>
+                                <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{rfq.target_delivery_days}d delivery</span>
+                                <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{rfq.delivery_location}</span>
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs border-primary/30 text-primary hover:bg-primary/10"
+                              onClick={() => {
+                                setSelectedRfqId(rfq.id);
+                                setDestination(rfq.delivery_location);
+                                setActiveTab('route-intelligence');
+                                toast.info('RFQ linked to Route Intelligence. Enter source to analyze.');
+                              }}
+                            >
+                              <Navigation className="h-3.5 w-3.5 mr-1" /> Analyze Route
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* ─── Documents Tab ──────────────────────────────── */}
+          {activeTab === 'documents' && (
+            <motion.div key="docs" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+              <Card className="card-base">
+                <CardContent className="py-16 text-center text-muted-foreground">
+                  <Package className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <p className="font-medium text-foreground">Document Management</p>
+                  <p className="text-sm mt-1">Upload compliance certificates, contracts, and audit reports to the AI knowledge base.</p>
+                  <Button className="mt-4" variant="outline">
+                    Upload Document (Coming Sprint 4b)
+                  </Button>
                 </CardContent>
               </Card>
             </motion.div>

@@ -53,14 +53,12 @@ interface RFQRecord {
 }
 
 export default function SupplierSwap() {
-  const [alternatives] = useState<AlternativeSupplier[]>([
-    { id: "SUP001", name: "Glow Cosmetics", fitScore: 92, costCompare: "-3.2%", leadTime: 5, capacity: "High", quality: "98.2%", risk: "Low", impact: "Favorable", badge: "Best Fit" },
-    { id: "SUP002", name: "Herbal Essence Ltd", fitScore: 86, costCompare: "+1.8%", leadTime: 6, capacity: "High", quality: "99.1%", risk: "Low", impact: "Favorable", badge: "Shortlist" },
-    { id: "SUP003", name: "EcoBeauty Solutions", fitScore: 74, costCompare: "+5.5%", leadTime: 8, capacity: "Medium", quality: "95.8%", risk: "Medium", impact: "Neutral", badge: "Shortlist" },
-    { id: "SUP005", name: "Luxe Packaging & Supply", fitScore: 68, costCompare: "+8.2%", leadTime: 9, capacity: "High", quality: "99.1%", risk: "Low", impact: "Favorable", badge: "Backup" }
-  ]);
+  // Real alternatives from Procurement Agent
+  const [alternatives, setAlternatives] = useState<AlternativeSupplier[]>([]);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [selectedAlt, setSelectedAlt] = useState<AlternativeSupplier | null>(null);
 
-  const [selectedAlt, setSelectedAlt] = useState<AlternativeSupplier>(alternatives[0]);
   const [rfqList, setRfqList] = useState<RFQRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -71,6 +69,50 @@ export default function SupplierSwap() {
   const [location, setLocation] = useState("Tata Motors Assembly Plant, Pimpri");
   const [terms, setTerms] = useState("Standard net-30 terms. ISO 9001 and IATF 16949 certification compliance required. Immediate delivery upon validation.");
   const [sendingRfq, setSendingRfq] = useState(false);
+
+  // Disrupted supplier — in production this would come from an alert/context
+  const DISRUPTED_SUPPLIER_ID = "SUP004";
+  const DISRUPTED_SUPPLIER_NAME = "Premier Haircare";
+
+  const fetchAlternatives = async () => {
+    setAgentLoading(true);
+    setAgentError(null);
+    try {
+      const res = await api.post('/agents/procurement', {
+        query: `Find the best alternative suppliers to replace ${DISRUPTED_SUPPLIER_NAME} (${DISRUPTED_SUPPLIER_ID}) who is disrupted. Rank by overall score, lowest risk, and best OTD.`,
+        supplier_id: DISRUPTED_SUPPLIER_ID,
+      });
+      const recs = res.data?.findings?.recommended_suppliers || [];
+      // Map Procurement Agent response to UI shape
+      const mapped: AlternativeSupplier[] = recs.map((r: any) => ({
+        id: r.supplier_id,
+        name: r.supplier_name,
+        fitScore: r.overall_score || 0,
+        costCompare: r.cost_index === 'Lower' ? '↓ Lower' : r.cost_index === 'Higher' ? '↑ Higher' : '≈ Similar',
+        leadTime: r.lead_time_days || 0,
+        capacity: r.otd_percentage >= 90 ? 'High' : r.otd_percentage >= 75 ? 'Medium' : 'Low',
+        quality: `${(100 - (r.defect_rate || 2)).toFixed(1)}%`,
+        risk: r.risk_level || 'Unknown',
+        impact: r.swap_recommendation?.includes('Recommended') ? 'Favorable' : 'Neutral',
+        badge: r.rank === 1 ? 'Best Fit' : r.rank <= 3 ? 'Shortlist' : 'Backup',
+      }));
+      setAlternatives(mapped);
+      if (mapped.length > 0) setSelectedAlt(mapped[0]);
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || 'Procurement Agent unavailable — showing cached data';
+      setAgentError(msg);
+      // Fallback static data so UI doesn't break
+      const fallback: AlternativeSupplier[] = [
+        { id: "SUP001", name: "Glow Cosmetics", fitScore: 92, costCompare: "-3.2%", leadTime: 5, capacity: "High", quality: "98.2%", risk: "Low", impact: "Favorable", badge: "Best Fit" },
+        { id: "SUP002", name: "Herbal Essence Ltd", fitScore: 86, costCompare: "+1.8%", leadTime: 6, capacity: "High", quality: "99.1%", risk: "Low", impact: "Favorable", badge: "Shortlist" },
+        { id: "SUP003", name: "EcoBeauty Solutions", fitScore: 74, costCompare: "+5.5%", leadTime: 8, capacity: "Medium", quality: "95.8%", risk: "Medium", impact: "Neutral", badge: "Shortlist" },
+      ];
+      setAlternatives(fallback);
+      setSelectedAlt(fallback[0]);
+    } finally {
+      setAgentLoading(false);
+    }
+  };
 
   const fetchRfqs = async () => {
     setLoading(true);
@@ -86,6 +128,7 @@ export default function SupplierSwap() {
   };
 
   useEffect(() => {
+    fetchAlternatives();
     fetchRfqs();
   }, []);
 
@@ -141,6 +184,17 @@ export default function SupplierSwap() {
             <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
             Autopilot Engaged
           </div>
+          <button
+            onClick={fetchAlternatives}
+            disabled={agentLoading}
+            className="ml-2 text-xs px-3 py-1.5 rounded-lg border border-primary/30 text-primary hover:bg-primary/10 flex items-center gap-1.5 transition-all"
+          >
+            {agentLoading ? (
+              <><span className="animate-spin">⟳</span> Running Agent...</>
+            ) : (
+              <><Sparkles className="h-3.5 w-3.5" /> Re-run Procurement Agent</>
+            )}
+          </button>
         </header>
 
         {/* Workflow Diagram */}
@@ -191,9 +245,23 @@ export default function SupplierSwap() {
             <Card className="card-base">
               <CardHeader className="py-4 flex flex-row justify-between items-center border-b border-border">
                 <CardTitle className="text-base font-extrabold">AI Sourcing Recommendations & Alternatives</CardTitle>
-                <span className="text-xs text-muted-foreground">{alternatives.length} alternatives matched</span>
+                <span className="text-xs text-muted-foreground">
+                  {agentLoading ? '⟳ Procurement Agent running...' : `${alternatives.length} alternatives matched`}
+                </span>
               </CardHeader>
               <CardContent className="p-0">
+                {agentError && (
+                  <div className="m-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    <span>{agentError} — showing fallback data.</span>
+                  </div>
+                )}
+                {agentLoading ? (
+                  <div className="flex items-center justify-center py-16 gap-3 text-muted-foreground">
+                    <Sparkles className="h-5 w-5 text-primary animate-pulse" />
+                    <span className="text-sm">Procurement Agent is finding alternatives...</span>
+                  </div>
+                ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
@@ -250,6 +318,7 @@ export default function SupplierSwap() {
                     </tbody>
                   </table>
                 </div>
+                )}
               </CardContent>
             </Card>
 
@@ -332,10 +401,10 @@ export default function SupplierSwap() {
               <CardContent className="p-6 space-y-4">
                 
                 <div className="bg-slate-950/80 border border-border p-3 rounded-lg text-[10px] font-mono text-cyan-400 space-y-1">
-                  <p>SYSTEM // TARGET IDENTIFIED: {selectedAlt.name}</p>
-                  <p>SYSTEM // FIT SCORE: {selectedAlt.fitScore}%</p>
-                  <p>SYSTEM // EXTRACTING CONTRACT PARAMS...</p>
-                </div>
+                <p>SYSTEM // TARGET IDENTIFIED: {selectedAlt?.name ?? 'None selected'}</p>
+                <p>SYSTEM // FIT SCORE: {selectedAlt?.fitScore ?? 0}%</p>
+                <p>SYSTEM // EXTRACTING CONTRACT PARAMS...</p>
+              </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="sku">Part / SKU Name</Label>
@@ -388,7 +457,7 @@ export default function SupplierSwap() {
 
                 <Button 
                   onClick={handleSendRFQ} 
-                  disabled={sendingRfq}
+                  disabled={sendingRfq || !selectedAlt}
                   className="w-full bg-cyan-500 hover:bg-cyan-600 font-bold text-slate-950"
                 >
                   <Send className="h-4 w-4 mr-2" />

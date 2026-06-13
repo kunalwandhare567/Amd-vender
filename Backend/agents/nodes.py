@@ -64,10 +64,10 @@ def retrieve_node(state: AgentState):
     """Retrieves relevant context — uses live DB data (always available)."""
     print("---RETRIEVING CONTEXT---")
 
-    # Try RAG retrieval first, fall back to live DB data
+    # Try Supabase pgvector semantic search, fall back to live DB data
     rag_context = ""
     try:
-        from rag.store import get_retriever
+        from rag.store import get_retriever_context
         last_message = state["messages"][-1]
         query = ""
         if isinstance(last_message.content, list):
@@ -77,11 +77,9 @@ def retrieve_node(state: AgentState):
         else:
             query = last_message.content
 
-        retriever = get_retriever()
-        docs = retriever.invoke(query)
-        rag_context = "\n\n".join([doc.page_content for doc in docs])
+        rag_context = get_retriever_context(query, k=5)
     except Exception as e:
-        print(f"RAG retrieval failed (using live DB instead): {e}")
+        print(f"pgvector semantic search failed (using live DB instead): {e}")
 
     # Always include live database context
     live_context = get_live_context()

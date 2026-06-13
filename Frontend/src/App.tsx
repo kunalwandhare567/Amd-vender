@@ -12,15 +12,14 @@ import SupplierDetail from "./pages/SupplierDetail";
 import Alerts from "./pages/Alerts";
 import Agent from "./pages/Agent";
 import NotFound from "./pages/NotFound";
-import IncidentsPage from "./pages/Incidents";
 import SLAMonitor from "./pages/SLAMonitor";
 import Interventions from "./pages/Interventions";
 import AddSupplier from "./pages/AddSupplier";
-import DriverPortal from "./pages/DriverPortal";
 import SupplierPortal from "./pages/SupplierPortal";
 import DigitalTwin from "./pages/DigitalTwin";
 import SupplierSwap from "./pages/SupplierSwap";
 import Profile from "./pages/Profile";
+import AgentArena from "./pages/AgentArena";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -80,13 +79,12 @@ const App = () => (
             <Route path="/add-supplier" element={<ProtectedRoute allowedRoles={['admin']}><AddSupplier /></ProtectedRoute>} />
             <Route path="/alerts" element={<ProtectedRoute allowedRoles={['admin']}><Alerts /></ProtectedRoute>} />
             <Route path="/agent" element={<ProtectedRoute allowedRoles={['admin']}><Agent /></ProtectedRoute>} />
-            <Route path="/incidents" element={<ProtectedRoute allowedRoles={['admin']}><IncidentsPage /></ProtectedRoute>} />
             <Route path="/sla-monitor" element={<ProtectedRoute allowedRoles={['admin']}><SLAMonitor /></ProtectedRoute>} />
             <Route path="/interventions" element={<ProtectedRoute allowedRoles={['admin']}><Interventions /></ProtectedRoute>} />
-            <Route path="/driver" element={<ProtectedRoute allowedRoles={['driver']}><DriverPortal /></ProtectedRoute>} />
             <Route path="/supplier-portal" element={<ProtectedRoute allowedRoles={['supplier']}><SupplierPortal /></ProtectedRoute>} />
             <Route path="/digital-twin" element={<ProtectedRoute allowedRoles={['admin']}><DigitalTwin /></ProtectedRoute>} />
             <Route path="/supplier-swap" element={<ProtectedRoute allowedRoles={['admin']}><SupplierSwap /></ProtectedRoute>} />
+            <Route path="/agent-arena" element={<ProtectedRoute allowedRoles={['admin']}><AgentArena /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>

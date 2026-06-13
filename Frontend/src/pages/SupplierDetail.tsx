@@ -10,6 +10,7 @@ import { ReportModal } from '@/components/modals/ReportModal';
 import { supplierService } from '@/services/supplierService';
 import { api } from '@/lib/api';
 import { purchaseOrders, qualityReports, deliveryLogs } from '@/data/mockData';
+import { Navigation, MapPin, AlertTriangle, TrendingUp, CheckCircle2, XCircle, CloudRain, Newspaper } from 'lucide-react';
 
 const SupplierDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -80,6 +81,7 @@ const SupplierDetail = () => {
     { id: 'quality', label: 'Quality' },
     { id: 'delivery', label: 'Delivery' },
     { id: 'contracts', label: 'Contracts' },
+    { id: 'route-intelligence', label: '🛣️ Route Intelligence' },
   ];
 
   // Mock historical data
@@ -437,6 +439,9 @@ const SupplierDetail = () => {
               </div>
             </div>
           )}
+          {activeTab === 'route-intelligence' && (
+            <RouteIntelligenceTab supplierId={supplier.supplier_id} />
+          )}
         </div>
       </div>
 
@@ -448,5 +453,113 @@ const SupplierDetail = () => {
     </MainLayout>
   );
 };
+
+function RouteIntelligenceTab({ supplierId }: { supplierId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['route-reports', supplierId],
+    queryFn: async () => {
+      const res = await api.get(`/route-intelligence/supplier/${supplierId}`);
+      return res.data.reports || [];
+    },
+  });
+
+  const reports: any[] = data || [];
+
+  const RISK_COLOR = (score: number) =>
+    score >= 70 ? 'text-red-400' : score >= 40 ? 'text-amber-400' : 'text-emerald-400';
+  const RISK_LABEL = (score: number) =>
+    score >= 70 ? 'High Risk' : score >= 40 ? 'Medium Risk' : 'Low Risk';
+
+  if (isLoading) return (
+    <div className="flex justify-center items-center py-16">
+      <div className="w-8 h-8 rounded-full border-4 border-muted border-t-primary animate-spin" />
+    </div>
+  );
+
+  if (reports.length === 0) return (
+    <div className="card-base p-12 text-center text-muted-foreground">
+      <Navigation className="h-12 w-12 mx-auto mb-4 opacity-20" />
+      <p className="font-medium text-foreground">No Route Reports Yet</p>
+      <p className="text-sm mt-1">Route analysis reports linked to this supplier will appear here.</p>
+      <p className="text-xs mt-3 text-primary">Suppliers can generate reports from the Supplier Portal → Route Intelligence tab.</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-foreground flex items-center gap-2">
+          <Navigation className="h-5 w-5 text-primary" /> Route Intelligence Reports ({reports.length})
+        </h3>
+      </div>
+      {reports.map((report: any) => (
+        <div key={report.report_id} className="card-base p-5 space-y-4">
+          {/* Header */}
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <MapPin className="h-4 w-4 text-primary" />
+                <span className="font-bold text-foreground">{report.source} → {report.destination}</span>
+                {report.rfq_id && (
+                  <span className="text-[10px] px-2 py-0.5 bg-primary/10 text-primary rounded border border-primary/20">
+                    RFQ: {report.rfq_id}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">{new Date(report.created_at).toLocaleString()}</p>
+            </div>
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border ${
+              report.risk_score >= 70 ? 'bg-red-500/10 border-red-500/30 text-red-400' :
+              report.risk_score >= 40 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
+              'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+            }`}>
+              {RISK_LABEL(report.risk_score)}
+            </span>
+          </div>
+
+          {/* Scores */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: 'Risk Score', value: report.risk_score, icon: <AlertTriangle className="h-3.5 w-3.5" />, colorFn: RISK_COLOR },
+              { label: 'Reliability', value: report.reliability_score, icon: <TrendingUp className="h-3.5 w-3.5" />, colorFn: (v: number) => v >= 70 ? 'text-emerald-400' : v >= 40 ? 'text-amber-400' : 'text-red-400' },
+              { label: 'Delay Prob.', value: report.delay_probability, icon: <CheckCircle2 className="h-3.5 w-3.5" />, colorFn: RISK_COLOR },
+            ].map(metric => (
+              <div key={metric.label} className="p-3 rounded-lg bg-secondary/30 text-center">
+                <div className={`flex items-center justify-center gap-1 mb-1 ${metric.colorFn(metric.value)}`}>
+                  {metric.icon}
+                  <span className="text-xl font-bold">{Math.round(metric.value)}</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground">{metric.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* AI Recommendation */}
+          {report.recommendation && (
+            <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
+              <p className="text-xs font-bold text-primary mb-1">AI Recommendation</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">{report.recommendation}</p>
+            </div>
+          )}
+
+          {/* News Headlines */}
+          {report.news_analysis?.headlines?.length > 0 && (
+            <div className="p-3 rounded-lg bg-secondary/30">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Newspaper className="h-3.5 w-3.5 text-purple-400" />
+                <p className="text-xs font-bold text-muted-foreground">Disruption News</p>
+              </div>
+              <div className="space-y-1">
+                {report.news_analysis.headlines.slice(0, 2).map((h: any, i: number) => (
+                  <p key={i} className="text-[10px] text-muted-foreground line-clamp-1">• {h.title}</p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default SupplierDetail;

@@ -8,6 +8,7 @@ class Supplier(SQLModel, table=True):
 
     # ── Kaggle dataset fields (aggregated per supplier) ──────────────
     location: str                              # cities joined, e.g. "Mumbai, Delhi"
+    region: Optional[str] = None              # e.g. "Maharashtra", "Gujarat"
     product_types: str                         # JSON list: '["skincare","cosmetics","haircare"]'
     avg_price: float                           # avg product price
     avg_availability: float                    # avg product availability (0-100)
@@ -52,7 +53,7 @@ class Alert(SQLModel, table=True):
     alert_id: str = Field(primary_key=True)
     supplier_id: str
     supplier_name: str
-    type: str  # Quality, Delivery, Contract, Other
+    type: str  # Quality, Delivery, Contract, Compliance, Risk
     severity: str  # Low, Medium, High, Critical
     message: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
@@ -79,28 +80,14 @@ class Intervention(SQLModel, table=True):
     priority: str  # critical, high, medium, low
     title: str
     description: str
-    target_suppliers: str # JSON string of list[str]
-    actions: str  # JSON string of list[Action]
-    status: str  # pending, in_progress, completed, failed
+    target_suppliers: str  # JSON string of list[str]
+    actions: str           # JSON string of list[Action]
+    status: str            # pending, in_progress, completed, failed
     impact_risk_reduction: float
     impact_cost_savings: float
     impact_performance_improvement: float
     estimated_duration: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
-
-class Incident(SQLModel, table=True):
-    id: str = Field(primary_key=True)
-    type: str  # Weather, Strike, Accident, Natural Disaster
-    location: str
-    severity: str  # Low, Medium, High, Critical
-    start_time: datetime = Field(default_factory=datetime.utcnow)
-    description: str
-    affected_supplier_id: Optional[str] = Field(default=None, foreign_key="supplier.supplier_id")
-    status: str = Field(default="Active")  # Active, Resolved
-    reported_by: str = Field(default="Driver")  # Driver, AI
-    lat: Optional[float] = None  # Incident GPS latitude
-    lng: Optional[float] = None  # Incident GPS longitude
-    trip_id: Optional[str] = None  # Associated trip (if reported by driver)
 
 class RFQ(SQLModel, table=True):
     id: str = Field(primary_key=True)
@@ -117,31 +104,49 @@ class RFQ(SQLModel, table=True):
     bid_comments: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-class Driver(SQLModel, table=True):
+class RouteReport(SQLModel, table=True):
+    """
+    Supplier-Centric Route Intelligence Report.
+    Created when a supplier analyzes a route for an RFQ or Order.
+    Visible only inside Supplier Profile, RFQ Details, and Order Details.
+    """
+    __tablename__ = "route_report"
     id: str = Field(primary_key=True)
-    name: str
-    phone: str = ""
-    truck_no: str = ""
-    status: str = Field(default="Available")  # Available, On Trip, Offline
-    current_lat: Optional[float] = None
-    current_lng: Optional[float] = None
-    supplier_id: Optional[str] = Field(default=None, foreign_key="supplier.supplier_id")
+    supplier_id: str = Field(foreign_key="supplier.supplier_id", index=True)
+    rfq_id: Optional[str] = Field(default=None, foreign_key="rfq.id", index=True)
+    order_id: Optional[str] = Field(default=None)  # Future: link to Order table
+    source: str
+    destination: str
 
-class InvoiceTrip(SQLModel, table=True):
-    __tablename__ = "invoicetrip"
+    # AI-generated risk & reliability scores
+    risk_score: float              # 0-100 (higher = more risk)
+    reliability_score: float       # 0-100 (higher = more reliable)
+    delay_probability: float       # 0-100% chance of delay
+    estimated_transit_days: Optional[float] = None
+
+    # AI analysis summaries (stored as JSON strings)
+    weather_analysis: Optional[str] = None      # JSON: {summary, risk_level, details}
+    news_analysis: Optional[str] = None         # JSON: {summary, risk_level, headlines}
+    infrastructure_analysis: Optional[str] = None
+    historical_sla_analysis: Optional[str] = None
+    recommendation: Optional[str] = None        # Best route recommendation text
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: Optional[str] = None            # supplier email or user id
+
+
+class SupplierDocument(SQLModel, table=True):
+    """
+    Tracks uploaded supplier documents (PDFs, CSVs, contracts, compliance records).
+    Document content is chunked and stored in pgvector supplier_embeddings for RAG.
+    """
+    __tablename__ = "supplier_document"
     id: str = Field(primary_key=True)
-    product_name: str
-    quantity: int
-    driver_id: str = Field(foreign_key="driver.id")
-    supplier_id: Optional[str] = Field(default=None, foreign_key="supplier.supplier_id")
-    source_location: str
-    source_lat: float
-    source_lng: float
-    destination_location: str
-    destination_lat: float
-    destination_lng: float
-    status: str = Field(default="Scheduled")  # Scheduled, In Transit, Delayed, Completed
-    route_json: Optional[str] = None  # JSON array of {lat, lng, name} waypoints
-    current_progress: float = Field(default=0.0)
-    est_arrival: Optional[str] = None
+    supplier_id: str = Field(foreign_key="supplier.supplier_id", index=True)
+    filename: str
+    file_type: str                    # application/pdf, text/csv
+    category: Optional[str] = None   # contract, compliance, audit, invoice, other
+    chunks_ingested: int = Field(default=0)
+    file_path: Optional[str] = None  # server-side path
+    uploaded_by: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

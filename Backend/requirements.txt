@@ -4,8 +4,6 @@ sqlmodel
 langgraph
 langchain
 langchain-community
-langchain-chroma
-chromadb
 langchain-openai
 python-dotenv
 python-socketio
@@ -14,3 +12,6 @@ passlib[bcrypt]
 pypdf
 python-multipart
 psycopg2-binary
+supabase
+vecs
+httpx

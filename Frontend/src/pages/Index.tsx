@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as THREE from 'three';
 import { motion } from 'framer-motion';
@@ -7,22 +7,14 @@ import { SummaryCards } from '@/components/dashboard/SummaryCards';
 import { TopRiskSuppliers } from '@/components/dashboard/TopRiskSuppliers';
 import { RecentAlerts } from '@/components/dashboard/RecentAlerts';
 import { RiskDonutChart } from '@/components/dashboard/RiskDonutChart';
-import { SupplierTable } from '@/components/suppliers/SupplierTable';
-import { SearchInput } from '@/components/common/SearchInput';
-import { Pagination } from '@/components/common/Pagination';
-import { ReportModal } from '@/components/modals/ReportModal';
+
 import { ChatBot } from '@/components/chat/ChatBot';
 import { supplierService } from '@/services/supplierService';
 // import { suppliers, alerts } from '@/data/mockData'; // Removed mock data import
 import { Supplier, Alert } from '@/data/mockData'; // Keeping interface
 
-const ITEMS_PER_PAGE = 5;
-
 const Index = () => {
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [reportSupplierId, setReportSupplierId] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]); // State for suppliers
   const [alerts, setAlerts] = useState<Alert[]>([]); // State for alerts
   const [isLoading, setIsLoading] = useState(true);
@@ -231,27 +223,7 @@ const Index = () => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  const filteredSuppliers = useMemo(() => {
-    return suppliers.filter(supplier =>
-      supplier.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      supplier.region.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      supplier.supplier_id.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [searchQuery]);
 
-  const totalPages = Math.ceil(filteredSuppliers.length / ITEMS_PER_PAGE);
-  const paginatedSuppliers = filteredSuppliers.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
-
-  const handleGenerateReport = (supplierId: string) => {
-    setReportSupplierId(supplierId);
-  };
-
-  const selectedSupplier = reportSupplierId
-    ? suppliers.find(s => s.supplier_id === reportSupplierId) || null
-    : null;
 
   return (
     <MainLayout>
@@ -347,54 +319,7 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Supplier List */}
-        <section
-          aria-labelledby="suppliers-heading"
-          className="card-base overflow-hidden animate-slide-up transform transition-all duration-300 hover:shadow-2xl"
-          style={{ animationDelay: '300ms' }}
-        >
-          <div className="p-6 border-b border-border backdrop-blur-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 id="suppliers-heading" className="text-lg font-semibold text-foreground">All Suppliers</h2>
-                <p className="text-sm text-muted-foreground">{filteredSuppliers.length} suppliers found</p>
-              </div>
-              <div className="w-full sm:w-72 transform transition-all duration-300 hover:scale-105">
-                <SearchInput
-                  value={searchQuery}
-                  onChange={(value) => {
-                    setSearchQuery(value);
-                    setCurrentPage(1);
-                  }}
-                  placeholder="Search suppliers..."
-                />
-              </div>
-            </div>
-          </div>
-
-          <SupplierTable
-            suppliers={paginatedSuppliers}
-            onGenerateReport={handleGenerateReport}
-          />
-
-          {totalPages > 1 && (
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={setCurrentPage}
-              totalItems={filteredSuppliers.length}
-              itemsPerPage={ITEMS_PER_PAGE}
-            />
-          )}
-        </section>
       </div>
-
-      {/* Report Modal */}
-      <ReportModal
-        supplier={selectedSupplier}
-        isOpen={!!reportSupplierId}
-        onClose={() => setReportSupplierId(null)}
-      />
 
       {/* ChatBot */}
       <ChatBot />

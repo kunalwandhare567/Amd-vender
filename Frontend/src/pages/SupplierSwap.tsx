@@ -18,7 +18,9 @@ import {
   Building,
   UserCheck,
   TrendingDown,
-  Info
+  Info,
+  Settings,
+  Loader2
 } from 'lucide-react';
 
 interface AlternativeSupplier {
@@ -62,25 +64,47 @@ export default function SupplierSwap() {
   const [rfqList, setRfqList] = useState<RFQRecord[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // RFQ Draft States
+  // Sourcing Requirements Inputs (Step 1)
   const [sku, setSku] = useState("COSM-HYD-04");
   const [qty, setQty] = useState("5000");
   const [targetDays, setTargetDays] = useState("14");
   const [location, setLocation] = useState("Tata Motors Assembly Plant, Pimpri");
-  const [terms, setTerms] = useState("Standard net-30 terms. ISO 9001 and IATF 16949 certification compliance required. Immediate delivery upon validation.");
-  const [sendingRfq, setSendingRfq] = useState(false);
+  const [disruptedSupplierId, setDisruptedSupplierId] = useState("SUP004");
+  const [disruptedSupplierName, setDisruptedSupplierName] = useState("Premier Haircare");
+  const [suppliers, setSuppliers] = useState<any[]>([]);
 
-  // Disrupted supplier — in production this would come from an alert/context
-  const DISRUPTED_SUPPLIER_ID = "SUP004";
-  const DISRUPTED_SUPPLIER_NAME = "Premier Haircare";
+  // Sourcing Search Workflow State
+  const [hasSearched, setHasSearched] = useState(false);
+
+  // RFQ Persisted Draft State
+  const [draftRfq, setDraftRfq] = useState<RFQRecord | null>(null);
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
+  const [terms, setTerms] = useState("");
+  const [sendingRfq, setSendingRfq] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [userApiKey, setUserApiKey] = useState(localStorage.getItem('user_openrouter_api_key') || '');
+
+  const fetchSuppliers = async () => {
+    try {
+      const res = await api.get('/suppliers');
+      const data = res.data?.data?.suppliers || [];
+      setSuppliers(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const fetchAlternatives = async () => {
     setAgentLoading(true);
     setAgentError(null);
+    setHasSearched(true);
+    setSelectedAlt(null);
+    setDraftRfq(null);
+    setTerms("");
     try {
       const res = await api.post('/agents/procurement', {
-        query: `Find the best alternative suppliers to replace ${DISRUPTED_SUPPLIER_NAME} (${DISRUPTED_SUPPLIER_ID}) who is disrupted. Rank by overall score, lowest risk, and best OTD.`,
-        supplier_id: DISRUPTED_SUPPLIER_ID,
+        query: `Find alternative suppliers for part SKU ${sku} with quantity ${qty} units and target delivery ${targetDays} days. Disrupted supplier is ${disruptedSupplierName} (${disruptedSupplierId}). Rank them by overall score, lowest risk, and best OTD.`,
+        supplier_id: disruptedSupplierId,
       });
       const recs = res.data?.findings?.recommended_suppliers || [];
       // Map Procurement Agent response to UI shape
@@ -97,7 +121,9 @@ export default function SupplierSwap() {
         badge: r.rank === 1 ? 'Best Fit' : r.rank <= 3 ? 'Shortlist' : 'Backup',
       }));
       setAlternatives(mapped);
-      if (mapped.length > 0) setSelectedAlt(mapped[0]);
+      if (mapped.length > 0) {
+        setSelectedAlt(mapped[0]);
+      }
     } catch (e: any) {
       const msg = e?.response?.data?.detail || 'Procurement Agent unavailable — showing cached data';
       setAgentError(msg);
@@ -128,25 +154,63 @@ export default function SupplierSwap() {
   };
 
   useEffect(() => {
-    fetchAlternatives();
+    fetchSuppliers();
     fetchRfqs();
   }, []);
 
-  const handleSendRFQ = async () => {
-    setSendingRfq(true);
+  const handleGenerateDraft = async () => {
+    if (!selectedAlt) {
+      toast.error("Please select a supplier from the list first.");
+      return;
+    }
+    setIsGeneratingDraft(true);
     try {
+      // 1. Generate customized terms/T&Cs using LLM if possible
+      const resDraft = await api.post(`/suppliers/${selectedAlt.id}/draft-email`, {
+        subject: `Draft terms for RFQ: Part SKU ${sku}, Qty ${qty}, Target Delivery ${targetDays} days. Address special compliance for standard net-30 terms, ISO 9001 and IATF 16949 certification compliance.`,
+        sender_role: 'Admin'
+      });
+      
+      const generatedTerms = resDraft.data?.draft || `Standard net-30 terms. ISO 9001 and IATF 16949 certification compliance required. Immediate delivery upon validation for SKU ${sku} (Quantity: ${qty}).`;
+      setTerms(generatedTerms);
+
+      // 2. Persist the RFQ as "Draft" in the database
       const payload = {
         supplier_id: selectedAlt.id,
-        original_supplier_id: "SUP004", // Premier Haircare
+        original_supplier_id: disruptedSupplierId,
         part_sku: sku,
         quantity: parseInt(qty),
         target_delivery_days: parseInt(targetDays),
         delivery_location: location,
-        terms_conditions: terms
+        terms_conditions: generatedTerms,
+        status: "Draft"
       };
 
-      await api.post('/rfqs', payload);
-      toast.success(`RFQ sent to ${selectedAlt.name}!`);
+      const resRfq = await api.post('/rfqs', payload);
+      setDraftRfq(resRfq.data);
+      toast.success(`Draft RFQ generated successfully for ${selectedAlt.name}!`);
+      fetchRfqs(); // Reload list
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e.response?.data?.detail || "Failed to generate RFQ draft");
+    } finally {
+      setIsGeneratingDraft(false);
+    }
+  };
+
+  const handleSendRFQ = async () => {
+    if (!draftRfq) {
+      toast.error("Please generate an RFQ draft first.");
+      return;
+    }
+    setSendingRfq(true);
+    try {
+      // Broadcast / Send the draft RFQ (updating status to "Sent")
+      await api.post(`/rfqs/${draftRfq.id}/send`);
+      toast.success(`RFQ broadcasted to ${selectedAlt?.name}!`);
+      setDraftRfq(null); // Clear active draft
+      setSelectedAlt(null); // Reset selection
+      setTerms("");
       fetchRfqs(); // Reload list
     } catch (e) {
       toast.error("Failed to send RFQ");
@@ -173,28 +237,21 @@ export default function SupplierSwap() {
         <header className="flex justify-between items-center border-b border-border pb-4">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-2">
-              <Sparkles className="h-7 w-7 text-primary animate-pulse" />
+              <div className="h-9 w-9 rounded-xl bg-primary/20 flex items-center justify-center border border-primary/30 shrink-0">
+                <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </div>
               Supplier Swap & RFQ Autopilot
             </h1>
             <p className="text-muted-foreground mt-1">
-              Autonomous alternative sourcing search, rank evaluations, and automated RFQ issuance.
+              Search alternative suppliers, rank them by fit, generate draft RFQs, and broadcast to candidates.
             </p>
           </div>
           <div className="bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1">
             <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
-            Autopilot Engaged
+            Autopilot Ready
           </div>
-          <button
-            onClick={fetchAlternatives}
-            disabled={agentLoading}
-            className="ml-2 text-xs px-3 py-1.5 rounded-lg border border-primary/30 text-primary hover:bg-primary/10 flex items-center gap-1.5 transition-all"
-          >
-            {agentLoading ? (
-              <><span className="animate-spin">⟳</span> Running Agent...</>
-            ) : (
-              <><Sparkles className="h-3.5 w-3.5" /> Re-run Procurement Agent</>
-            )}
-          </button>
         </header>
 
         {/* Workflow Diagram */}
@@ -213,30 +270,87 @@ export default function SupplierSwap() {
           {/* Main ranking and active list area (Col 8) */}
           <div className="xl:col-span-8 space-y-6">
             
-            {/* Sourcing Parameter Box */}
-            <Card className="card-base border border-amber-500/20 bg-amber-950/5">
-              <CardHeader className="py-4 border-b border-border/60">
-                <CardTitle className="text-sm font-bold text-amber-400 flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4" />
-                  Active Sourcing Trigger (Disruption Mitigation)
+            {/* Step 1: Sourcing Requirement Input */}
+            <Card className="card-base border border-primary/20 bg-card/45">
+              <CardHeader className="py-4 border-b border-border">
+                <CardTitle className="text-sm font-bold flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-[10px] font-bold text-primary">1</span>
+                  Enter Sourcing Requirement
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-                <div>
-                  <span className="text-muted-foreground">Disrupted supplier:</span>
-                  <p className="font-bold text-slate-200 mt-1">Premier Haircare (SUP004)</p>
+              <CardContent className="p-6 space-y-4 text-xs">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="disruptedSupplier" className="text-muted-foreground">Disrupted Supplier</Label>
+                    <select
+                      id="disruptedSupplier"
+                      className="w-full border border-border rounded-md px-3 py-2 text-xs bg-secondary/40 text-foreground h-9"
+                      value={disruptedSupplierId}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setDisruptedSupplierId(val);
+                        const match = suppliers.find(s => s.supplier_id === val);
+                        if (match) setDisruptedSupplierName(match.name);
+                      }}
+                    >
+                      {suppliers.map(s => (
+                        <option key={s.supplier_id} value={s.supplier_id}>
+                          {s.name} ({s.supplier_id})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="sku" className="text-muted-foreground">Part / SKU Name</Label>
+                    <Input
+                      id="sku"
+                      value={sku}
+                      onChange={e => setSku(e.target.value)}
+                      className="bg-secondary/40 h-9"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="qty" className="text-muted-foreground">Required Quantity</Label>
+                    <Input
+                      id="qty"
+                      type="number"
+                      value={qty}
+                      onChange={e => setQty(e.target.value)}
+                      className="bg-secondary/40 h-9"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="targetDays" className="text-muted-foreground">Target Delivery Days</Label>
+                    <Input
+                      id="targetDays"
+                      type="number"
+                      value={targetDays}
+                      onChange={e => setTargetDays(e.target.value)}
+                      className="bg-secondary/40 h-9"
+                    />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <Label htmlFor="location" className="text-muted-foreground">Delivery Location</Label>
+                    <Input
+                      id="location"
+                      value={location}
+                      onChange={e => setLocation(e.target.value)}
+                      className="bg-secondary/40 h-9"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Required Part / SKU:</span>
-                  <p className="font-bold text-slate-200 mt-1">{sku}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Target volume:</span>
-                  <p className="font-bold text-slate-200 mt-1">{qty} Units</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Delivery Loc:</span>
-                  <p className="font-bold text-slate-200 mt-1 truncate">{location}</p>
+                <div className="flex justify-end pt-2">
+                  <Button
+                    onClick={fetchAlternatives}
+                    disabled={agentLoading || !sku || !qty}
+                    className="bg-primary hover:bg-primary/95 text-primary-foreground font-bold px-6"
+                  >
+                    {agentLoading ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Searching...</>
+                    ) : (
+                      <><Sparkles className="h-4 w-4 mr-2 text-cyan-400" />Search Matching Suppliers</>
+                    )}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -244,9 +358,12 @@ export default function SupplierSwap() {
             {/* Alternatives Ranking Table */}
             <Card className="card-base">
               <CardHeader className="py-4 flex flex-row justify-between items-center border-b border-border">
-                <CardTitle className="text-base font-extrabold">AI Sourcing Recommendations & Alternatives</CardTitle>
+                <CardTitle className="text-sm font-bold flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-[10px] font-bold text-primary">2</span>
+                  Review & Rank Alternative Suppliers
+                </CardTitle>
                 <span className="text-xs text-muted-foreground">
-                  {agentLoading ? '⟳ Procurement Agent running...' : `${alternatives.length} alternatives matched`}
+                  {agentLoading ? '⟳ Procurement Agent running...' : hasSearched ? `${alternatives.length} alternatives matched` : 'No search run'}
                 </span>
               </CardHeader>
               <CardContent className="p-0">
@@ -256,7 +373,13 @@ export default function SupplierSwap() {
                     <span>{agentError} — showing fallback data.</span>
                   </div>
                 )}
-                {agentLoading ? (
+                {!hasSearched ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground">
+                    <Building className="h-10 w-10 opacity-30 mb-3" />
+                    <p className="font-semibold text-sm">No Sourcing Query Run Yet</p>
+                    <p className="text-xs mt-1">Fill out the requirements in Step 1 and search to discover alternative candidates.</p>
+                  </div>
+                ) : agentLoading ? (
                   <div className="flex items-center justify-center py-16 gap-3 text-muted-foreground">
                     <Sparkles className="h-5 w-5 text-primary animate-pulse" />
                     <span className="text-sm">Procurement Agent is finding alternatives...</span>
@@ -282,10 +405,12 @@ export default function SupplierSwap() {
                           key={alt.id}
                           onClick={() => {
                             setSelectedAlt(alt);
-                            toast.info(`Selected ${alt.name} for RFQ dispatch.`);
+                            setDraftRfq(null);
+                            setTerms("");
+                            toast.info(`Selected ${alt.name} for RFQ generation.`);
                           }}
                           className={`cursor-pointer transition-all hover:bg-secondary/40 ${
-                            selectedAlt.id === alt.id ? 'bg-primary/5 border-l-4 border-l-primary' : ''
+                            selectedAlt?.id === alt.id ? 'bg-primary/5 border-l-4 border-l-primary' : ''
                           }`}
                         >
                           <td className="p-4 font-bold">
@@ -396,73 +521,161 @@ export default function SupplierSwap() {
             <Card className="card-base border border-primary/20 bg-card/65 backdrop-blur-md shadow-2xl">
               <CardHeader className="border-b border-border/80 flex flex-row items-center gap-2 py-4">
                 <Sparkles className="h-5 w-5 text-primary" />
-                <CardTitle className="text-base font-extrabold text-foreground">AI RFQ Auto-Generator</CardTitle>
+                <CardTitle className="text-base font-extrabold text-foreground flex-1 flex items-center justify-between">
+                  <span>AI RFQ Auto-Generator</span>
+                  <button 
+                    onClick={() => setShowSettings(!showSettings)} 
+                    className="text-muted-foreground hover:text-foreground transition-all"
+                    title="API Settings"
+                  >
+                    <Settings className={`h-4 w-4 ${showSettings ? 'animate-spin' : ''}`} />
+                  </button>
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4">
                 
-                <div className="bg-slate-950/80 border border-border p-3 rounded-lg text-[10px] font-mono text-cyan-400 space-y-1">
-                <p>SYSTEM // TARGET IDENTIFIED: {selectedAlt?.name ?? 'None selected'}</p>
-                <p>SYSTEM // FIT SCORE: {selectedAlt?.fitScore ?? 0}%</p>
-                <p>SYSTEM // EXTRACTING CONTRACT PARAMS...</p>
-              </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="sku">Part / SKU Name</Label>
-                  <Input 
-                    id="sku"
-                    value={sku}
-                    onChange={(e) => setSku(e.target.value)}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="qty">Quantity</Label>
-                    <Input 
-                      id="qty"
-                      type="number"
-                      value={qty}
-                      onChange={(e) => setQty(e.target.value)}
-                    />
+                {showSettings && (
+                  <div className="p-3 bg-secondary/35 rounded-lg border border-border text-[11px] space-y-2">
+                    <p className="font-semibold text-primary">🔧 Configure Custom OpenRouter Settings</p>
+                    <div className="space-y-1">
+                      <Label className="text-[10px]">OpenRouter API Key</Label>
+                      <Input 
+                        type="password" 
+                        placeholder="sk-or-..." 
+                        value={userApiKey} 
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setUserApiKey(val);
+                          if (val.trim()) {
+                            localStorage.setItem('user_openrouter_api_key', val.trim());
+                          } else {
+                            localStorage.removeItem('user_openrouter_api_key');
+                          }
+                        }}
+                        className="h-7 text-xs bg-slate-900 border-border"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px]">Model</Label>
+                      <Input 
+                        placeholder="google/gemini-2.5-flash" 
+                        value={localStorage.getItem('user_openrouter_model') || 'google/gemini-2.5-flash'} 
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val.trim()) {
+                            localStorage.setItem('user_openrouter_model', val.trim());
+                          } else {
+                            localStorage.removeItem('user_openrouter_model');
+                          }
+                        }}
+                        className="h-7 text-xs bg-slate-900 border-border"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="targetDays">Target Delivery Days</Label>
-                    <Input 
-                      id="targetDays"
-                      type="number"
-                      value={targetDays}
-                      onChange={(e) => setTargetDays(e.target.value)}
-                    />
+                )}
+
+                {!selectedAlt ? (
+                  <div className="py-12 text-center text-muted-foreground space-y-2">
+                    <Info className="h-8 w-8 mx-auto opacity-20" />
+                    <p className="font-semibold text-sm">No Supplier Selected</p>
+                    <p className="text-xs">Select an alternative supplier from the rankings table to initiate RFQ generation.</p>
                   </div>
-                </div>
+                ) : !draftRfq ? (
+                  <div className="space-y-4">
+                    <div className="bg-slate-950/80 border border-border p-3 rounded-lg text-[10px] font-mono text-cyan-400 space-y-1">
+                      <p>SYSTEM // SELECTED SUPPLIER: {selectedAlt.name}</p>
+                      <p>SYSTEM // FIT SCORE: {selectedAlt.fitScore}%</p>
+                      <p>SYSTEM // RFQ STATE: NOT GENERATED</p>
+                    </div>
+                    <Button 
+                      onClick={handleGenerateDraft} 
+                      disabled={isGeneratingDraft}
+                      className="w-full bg-primary hover:bg-primary/90 font-bold"
+                    >
+                      {isGeneratingDraft ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating Draft...</>
+                      ) : (
+                        <><Sparkles className="h-4 w-4 mr-2 text-cyan-400 animate-pulse" />Generate RFQ Draft</>
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="bg-slate-950/80 border border-border p-3 rounded-lg text-[10px] font-mono text-cyan-400 space-y-1">
+                      <p>SYSTEM // RFQ ID: {draftRfq.id}</p>
+                      <p>SYSTEM // TARGET: {selectedAlt.name}</p>
+                      <p>SYSTEM // RFQ STATUS: DRAFT</p>
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="location">Delivery Location</Label>
-                  <Input 
-                    id="location"
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                  />
-                </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="sku">Part / SKU Name</Label>
+                      <Input 
+                        id="sku"
+                        disabled
+                        value={sku}
+                        className="bg-secondary/20 h-8 text-xs opacity-75"
+                      />
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="terms">AI Drafted Terms & T&Cs</Label>
-                  <Textarea 
-                    id="terms"
-                    rows={6}
-                    value={terms}
-                    onChange={(e) => setTerms(e.target.value)}
-                  />
-                </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="qty">Quantity</Label>
+                        <Input 
+                          id="qty"
+                          type="number"
+                          disabled
+                          value={qty}
+                          className="bg-secondary/20 h-8 text-xs opacity-75"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="targetDays">Target Delivery (Days)</Label>
+                        <Input 
+                          id="targetDays"
+                          type="number"
+                          disabled
+                          value={targetDays}
+                          className="bg-secondary/20 h-8 text-xs opacity-75"
+                        />
+                      </div>
+                    </div>
 
-                <Button 
-                  onClick={handleSendRFQ} 
-                  disabled={sendingRfq || !selectedAlt}
-                  className="w-full bg-cyan-500 hover:bg-cyan-600 font-bold text-slate-950"
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  {sendingRfq ? "Broadcasting RFQ..." : "Send RFQ to Alternative"}
-                </Button>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="terms">AI Drafted Terms & T&Cs</Label>
+                      <Textarea 
+                        id="terms"
+                        rows={7}
+                        value={terms}
+                        onChange={(e) => setTerms(e.target.value)}
+                        className="text-xs bg-slate-950 border-border"
+                      />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button 
+                        onClick={() => {
+                          setDraftRfq(null);
+                          setTerms("");
+                        }}
+                        variant="outline"
+                        className="flex-1 text-xs font-semibold h-9"
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        onClick={handleSendRFQ} 
+                        disabled={sendingRfq}
+                        className="flex-[2] bg-cyan-500 hover:bg-cyan-600 font-bold text-slate-950 h-9"
+                      >
+                        {sendingRfq ? (
+                          <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Broadcasting...</>
+                        ) : (
+                          <><Send className="h-3.5 w-3.5 mr-1.5" />Broadcast RFQ</>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
               </CardContent>
             </Card>

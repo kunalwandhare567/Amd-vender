@@ -23,9 +23,11 @@ interface ContactModalProps {
   } | null;
   isOpen: boolean;
   onClose: () => void;
+  initialSubject?: string;
+  initialMessage?: string;
 }
 
-export function ContactModal({ supplier, isOpen, onClose }: ContactModalProps) {
+export function ContactModal({ supplier, isOpen, onClose, initialSubject = '', initialMessage = '' }: ContactModalProps) {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [sentVia, setSentVia] = useState<'Portal' | 'Email' | 'SMS'>('Portal');
@@ -52,12 +54,12 @@ export function ContactModal({ supplier, isOpen, onClose }: ContactModalProps) {
 
   useEffect(() => {
     if (isOpen && supplier) {
-      setSubject('');
-      setMessage('');
+      setSubject(initialSubject);
+      setMessage(initialMessage);
       setPhone(supplier.phone || '+91 98765 43210');
       fetchHistory();
     }
-  }, [isOpen, supplier]);
+  }, [isOpen, supplier, initialSubject, initialMessage]);
 
   const handleGenerateDraft = async () => {
     if (!supplier || !subject.trim()) return;

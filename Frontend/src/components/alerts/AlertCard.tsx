@@ -5,9 +5,10 @@ interface AlertCardProps {
   alert: Alert;
   onReview?: (alertId: string) => void;
   onResolve?: (alertId: string) => void;
+  onNotify?: (alert: Alert) => void;
 }
 
-export function AlertCard({ alert, onReview, onResolve }: AlertCardProps) {
+export function AlertCard({ alert, onReview, onResolve, onNotify }: AlertCardProps) {
   const getTypeIcon = () => {
     switch (alert.type) {
       case 'Quality':
@@ -95,6 +96,14 @@ export function AlertCard({ alert, onReview, onResolve }: AlertCardProps) {
             </span>
             
             <div className="flex items-center gap-2">
+              {onNotify && alert.status !== 'Resolved' && (
+                <button
+                  onClick={() => onNotify(alert)}
+                  className="btn-secondary text-xs py-1 px-3 flex items-center gap-1 border-primary/20 hover:bg-secondary/40 text-foreground"
+                >
+                  Notify
+                </button>
+              )}
               {alert.status === 'New' && onReview && (
                 <button
                   onClick={() => onReview(alert.alert_id)}

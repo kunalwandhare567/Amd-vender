@@ -837,6 +837,7 @@ class SendMessageRequest(BaseModel):
 
 class GenerateDraftRequest(BaseModel):
     subject: str
+    sender_role: Optional[str] = "Admin"  # "Admin" or "Supplier"
 
 
 @router.post("/{supplier_id}/draft-email", response_model=dict)
@@ -860,7 +861,27 @@ async def generate_draft_email(
 
         llm = get_llm(api_key=api_key, model=model, temperature=0.5)
 
-        prompt = f"""You are a supply chain analyst and communications expert at VendorVerse.
+        if request.sender_role == "Supplier":
+            prompt = f"""You are writing a professional message from the supplier '{supplier.name}' to the VendorVerse Procurement Team.
+
+The subject of the message is: "{request.subject}"
+
+Here are your actual performance metrics from the VendorVerse portal:
+- On-Time Delivery (OTD): {supplier.otd_percentage or 'N/A'}%
+- Defect Rate: {supplier.defect_rate}%
+- Overall Score: {supplier.overall_score or 'N/A'}/100
+- Risk Level: {supplier.risk_level or 'Low'}
+- Average Lead Time: {supplier.avg_lead_time} days
+- Region: {supplier.region or 'N/A'}
+
+Guidelines:
+1. Maintain a professional, collaborative business tone. Frame it from the perspective of the supplier, addressing the VendorVerse Procurement Team.
+2. Be concise and structured. Reference your performance metrics naturally if they are relevant to the topic/subject. Focus on maintaining a strong relationship and resolving any issues.
+3. Do not include placeholders like '[Your Name]', '[Date]', or '[Admin Team Contact]'. Keep them empty or sign off as '{supplier.name} Team'.
+4. Output ONLY the email/message body content, with no markdown headers (like 'Subject:') or surrounding explanation blocks. Start directly with the greeting (e.g. 'Dear VendorVerse Procurement Team,').
+"""
+        else:
+            prompt = f"""You are a supply chain analyst and communications expert at VendorVerse.
 Write a professional, clear, and direct message/email to the supplier '{supplier.name}' regarding the subject: '{request.subject}'.
 
 Use the following supplier performance data to ground the details and context if relevant (do not invent data):
@@ -873,7 +894,7 @@ Use the following supplier performance data to ground the details and context if
 - Region: {supplier.region or 'N/A'}
 
 Guidelines:
-1. Maintain a professional, collaborative business tone.
+1. Maintain a professional, collaborative business tone. Frame it from the perspective of VendorVerse Procurement Team, addressing '{supplier.name} Team'.
 2. Be concise and structured.
 3. Do not include placeholders like '[Your Name]', '[Date]', or '[Supplier Contact]'. Keep them empty or sign off as 'VendorVerse Procurement Team'.
 4. Output ONLY the email/message body content, with no markdown headers (like 'Subject:') or surrounding explanation blocks. Start directly with the greeting.
@@ -891,7 +912,10 @@ Guidelines:
 
     except Exception as e:
         print(f"Failed to generate AI draft: {e}")
-        fallback_draft = f"Dear {supplier.name} Team,\n\nWe are writing to discuss: '{request.subject}'.\n\nBased on our records, your overall performance score is {supplier.overall_score or 'N/A'}/100 with an on-time delivery rate of {supplier.otd_percentage or 'N/A'}% and a defect rate of {supplier.defect_rate}%.\n\nPlease let us know your availability to discuss this topic further.\n\nBest regards,\nVendorVerse Procurement Team"
+        if request.sender_role == "Supplier":
+            fallback_draft = f"Dear VendorVerse Procurement Team,\n\nWe are writing to discuss: '{request.subject}'.\n\nBased on the portal records, our overall performance score is {supplier.overall_score or 'N/A'}/100 with an on-time delivery rate of {supplier.otd_percentage or 'N/A'}% and a defect rate of {supplier.defect_rate}%.\n\nWe look forward to discussing this with you.\n\nBest regards,\n{supplier.name} Team"
+        else:
+            fallback_draft = f"Dear {supplier.name} Team,\n\nWe are writing to discuss: '{request.subject}'.\n\nBased on our records, your overall performance score is {supplier.overall_score or 'N/A'}/100 with an on-time delivery rate of {supplier.otd_percentage or 'N/A'}% and a defect rate of {supplier.defect_rate}%.\n\nPlease let us know your availability to discuss this topic further.\n\nBest regards,\nVendorVerse Procurement Team"
         return {"success": True, "draft": fallback_draft}
 
 

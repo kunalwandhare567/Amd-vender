@@ -5,6 +5,7 @@ import { AlertCard } from '@/components/alerts/AlertCard';
 import { SearchInput } from '@/components/common/SearchInput';
 import { Alert } from '@/data/mockData';
 import { supplierService } from '@/services/supplierService';
+import { ContactModal } from '@/components/modals/ContactModal';
 
 const Alerts = () => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -12,6 +13,11 @@ const Alerts = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
+  
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [selectedSupplier, setSelectedSupplier] = useState<{ supplier_id: string; name: string; phone?: string } | null>(null);
+  const [notifySubject, setNotifySubject] = useState('');
+  const [notifyMessage, setNotifyMessage] = useState('');
 
   useEffect(() => {
     const fetchAlerts = async () => {
@@ -40,6 +46,20 @@ const Alerts = () => {
       return matchesSearch && matchesStatus && matchesSeverity;
     }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [alerts, searchQuery, statusFilter, severityFilter]);
+
+  const handleNotify = (alert: Alert) => {
+    setSelectedSupplier({
+      supplier_id: alert.supplier_id,
+      name: alert.supplier_name,
+    });
+    
+    const subject = `[Alert Notice] ${alert.type} Alert: ${alert.supplier_name}`;
+    const body = `Dear ${alert.supplier_name} Team,\n\nWe are contacting you regarding an alert flagged on our system:\n\n- Alert Type: ${alert.type}\n- Severity: ${alert.severity}\n- Detail: ${alert.message}\n- Logged Time: ${new Date(alert.timestamp).toLocaleString()}\n\nPlease review this issue immediately and reply with your plan of action to resolve it.\n\nBest regards,\nVendorVerse Procurement Team`;
+    
+    setNotifySubject(subject);
+    setNotifyMessage(body);
+    setShowContactModal(true);
+  };
 
   const handleReview = (alertId: string) => {
     // In a real app, this would be an API call
@@ -245,12 +265,21 @@ const Alerts = () => {
                   alert={alert}
                   onReview={handleReview}
                   onResolve={handleResolve}
+                  onNotify={handleNotify}
                 />
               </motion.div>
             ))
           )}
         </motion.div>
       </div>
+
+      <ContactModal
+        supplier={selectedSupplier}
+        isOpen={showContactModal}
+        onClose={() => setShowContactModal(false)}
+        initialSubject={notifySubject}
+        initialMessage={notifyMessage}
+      />
     </MainLayout>
   );
 };

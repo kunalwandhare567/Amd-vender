@@ -11,7 +11,8 @@ import { api } from '@/lib/api';
 import {
   Building2, TrendingUp, AlertTriangle, MapPin, Package,
   FileText, Navigation, Loader2, CheckCircle2, XCircle,
-  CloudRain, Newspaper, BarChart3, RefreshCw, Clock, Zap, MessageSquare
+  CloudRain, Newspaper, BarChart3, RefreshCw, Clock, Zap, MessageSquare,
+  Sparkles
 } from 'lucide-react';
 
 interface RouteReport {
@@ -100,6 +101,32 @@ export default function SupplierPortal() {
   const [replySubject, setReplySubject] = useState('');
   const [replyBody, setReplyBody] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
+
+  const handleGenerateDraft = async () => {
+    if (!replySubject.trim()) {
+      toast.error('Please enter a subject first to generate a draft.');
+      return;
+    }
+    setIsGeneratingDraft(true);
+    try {
+      const res = await api.post(`/suppliers/${SUPPLIER_ID}/draft-email`, {
+        subject: replySubject.trim(),
+        sender_role: 'Supplier'
+      });
+      if (res.data.success && res.data.draft) {
+        setReplyBody(res.data.draft);
+        toast.success('AI Draft generated successfully!');
+      } else {
+        toast.error('Failed to generate draft.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.response?.data?.detail || 'Failed to generate draft.');
+    } finally {
+      setIsGeneratingDraft(false);
+    }
+  };
 
   const fetchMessages = async () => {
     setLoadingMessages(true);
@@ -666,13 +693,29 @@ export default function SupplierPortal() {
                     </div>
                     <div className="space-y-2">
                       <Label>Subject</Label>
-                      <Input
-                        placeholder="e.g. Re: Quality SLA warning"
-                        value={replySubject}
-                        onChange={e => setReplySubject(e.target.value)}
-                        className="bg-secondary/40"
-                        required
-                      />
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="e.g. Re: Quality SLA warning"
+                          value={replySubject}
+                          onChange={e => setReplySubject(e.target.value)}
+                          className="bg-secondary/40 flex-1"
+                          required
+                        />
+                        <Button
+                          type="button"
+                          onClick={handleGenerateDraft}
+                          disabled={isGeneratingDraft || !replySubject.trim()}
+                          variant="outline"
+                          className="gap-1.5 whitespace-nowrap"
+                        >
+                          {isGeneratingDraft ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3.5 h-3.5 text-primary" />
+                          )}
+                          AI Draft
+                        </Button>
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label>Message Content</Label>

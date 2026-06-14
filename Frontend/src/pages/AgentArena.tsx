@@ -75,6 +75,121 @@ function AgentOrb({ agentKey, active, done }: { agentKey: string; active: boolea
   );
 }
 
+
+function formatInlineText(text: string) {
+  // Split on **bold** text to render it cleanly without asterisks
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={idx} className="font-bold text-foreground">{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
+function parseMarkdown(text: string) {
+  if (!text) return null;
+
+  // Split content by paragraph blocks
+  const blocks = text.split(/\n\n+/);
+
+  return blocks.map((block, blockIdx) => {
+    const trimmedBlock = block.trim();
+    if (!trimmedBlock) return null;
+
+    // Check if the block is a markdown table
+    if (trimmedBlock.startsWith('|') && trimmedBlock.includes('\n|')) {
+      const lines = trimmedBlock.split('\n').map(l => l.trim()).filter(Boolean);
+      // Skip markdown divider lines like |---|---|
+      const tableLines = lines.filter(line => !/^[|\s-:]+$/.test(line));
+      
+      const rows = tableLines.map(line => {
+        return line
+          .split('|')
+          .map(cell => cell.trim())
+          .filter((_, i, arr) => i > 0 && i < arr.length - 1);
+      });
+
+      if (rows.length > 0) {
+        const headers = rows[0];
+        const bodyRows = rows.slice(1);
+
+        return (
+          <div key={blockIdx} className="overflow-x-auto my-3 border border-border/60 rounded-lg">
+            <table className="min-w-full divide-y divide-border/60 text-xs">
+              <thead className="bg-secondary/40 font-bold text-muted-foreground uppercase">
+                <tr>
+                  {headers.map((h, i) => (
+                    <th key={i} className="px-4 py-2.5 text-left font-semibold">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40 bg-card/10">
+                {bodyRows.map((row, rIdx) => (
+                  <tr key={rIdx} className="hover:bg-secondary/20 transition-colors">
+                    {row.map((cell, cIdx) => (
+                      <td key={cIdx} className="px-4 py-2 text-foreground leading-normal">{formatInlineText(cell)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+    }
+
+    // Check if block is a bullet list (lines starting with -, *, or numbered lists)
+    const lines = trimmedBlock.split('\n');
+    const isBulletList = lines.every(line => /^\s*[-*•]\s+/.test(line));
+    const isNumberedList = lines.every(line => /^\s*\d+\.\s+/.test(line));
+
+    if (isBulletList) {
+      return (
+        <ul key={blockIdx} className="list-disc list-inside space-y-1.5 my-2.5 pl-2 text-sm text-foreground/90">
+          {lines.map((line, lIdx) => {
+            const content = line.replace(/^\s*[-*•]\s+/, '');
+            return <li key={lIdx} className="leading-relaxed">{formatInlineText(content)}</li>;
+          })}
+        </ul>
+      );
+    }
+
+    if (isNumberedList) {
+      return (
+        <ol key={blockIdx} className="list-decimal list-inside space-y-1.5 my-2.5 pl-2 text-sm text-foreground/90">
+          {lines.map((line, lIdx) => {
+            const content = line.replace(/^\s*\d+\.\s+/, '');
+            return <li key={lIdx} className="leading-relaxed">{formatInlineText(content)}</li>;
+          })}
+        </ol>
+      );
+    }
+
+    // Check if the line is a markdown heading
+    if (trimmedBlock.startsWith('#')) {
+      const match = trimmedBlock.match(/^(#{1,6})\s+(.*)$/);
+      if (match) {
+        const level = match[1].length;
+        const headingText = match[2];
+        const headingClass = 
+          level === 1 ? "text-lg font-extrabold text-foreground mt-5 mb-2.5 border-b border-border/40 pb-1" :
+          level === 2 ? "text-base font-bold text-foreground mt-4.5 mb-2" :
+          "text-xs font-bold text-primary mt-3.5 mb-1.5 uppercase tracking-wider";
+        
+        return <div key={blockIdx} className={headingClass}>{formatInlineText(headingText)}</div>;
+      }
+    }
+
+    // Default paragraph
+    return (
+      <p key={blockIdx} className="text-sm text-foreground/90 leading-relaxed my-2.5">
+        {formatInlineText(trimmedBlock)}
+      </p>
+    );
+  });
+}
+
 export default function MultiAgentArena() {
   const [query, setQuery] = useState('');
   const [supplierId, setSupplierId] = useState('');
@@ -330,7 +445,9 @@ export default function MultiAgentArena() {
                               Session #{result.session_id}
                             </div>
                           </div>
-                          <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{result.executive_summary}</p>
+                          <div className="space-y-1 text-sm text-foreground/90 leading-relaxed">
+                            {parseMarkdown(result.executive_summary)}
+                          </div>
                         </div>
                       </div>
                     </CardContent>

@@ -16,6 +16,7 @@ class RFQCreate(BaseModel):
     target_delivery_days: int
     delivery_location: str
     terms_conditions: str
+    status: Optional[str] = "Sent"
 
 class RFQBidSubmit(BaseModel):
     bid_price: float
@@ -91,7 +92,7 @@ def create_rfq(rfq_data: RFQCreate, session: Session = Depends(get_session)):
         target_delivery_days=rfq_data.target_delivery_days,
         delivery_location=rfq_data.delivery_location,
         terms_conditions=rfq_data.terms_conditions,
-        status="Sent",  # Set to Sent immediately by Autopilot
+        status=rfq_data.status or "Sent",  # Set to status provided (Draft or Sent)
         created_at=datetime.utcnow()
     )
     
@@ -115,6 +116,41 @@ def create_rfq(rfq_data: RFQCreate, session: Session = Depends(get_session)):
         bid_lead_time=new_rfq.bid_lead_time,
         bid_comments=new_rfq.bid_comments,
         created_at=new_rfq.created_at
+    )
+
+
+@router.post("/{rfq_id}/send", response_model=RFQResponse)
+def send_rfq(rfq_id: str, session: Session = Depends(get_session)):
+    rfq = session.get(RFQ, rfq_id)
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    if rfq.status != "Draft":
+        raise HTTPException(status_code=400, detail="Only Draft RFQs can be broadcasted")
+    
+    rfq.status = "Sent"
+    session.add(rfq)
+    session.commit()
+    session.refresh(rfq)
+    
+    supp = session.get(Supplier, rfq.supplier_id)
+    orig_supp = session.get(Supplier, rfq.original_supplier_id)
+    
+    return RFQResponse(
+        id=rfq.id,
+        supplier_id=rfq.supplier_id,
+        supplier_name=supp.name if supp else "Unknown",
+        original_supplier_id=rfq.original_supplier_id,
+        original_supplier_name=orig_supp.name if orig_supp else "Unknown",
+        part_sku=rfq.part_sku,
+        quantity=rfq.quantity,
+        target_delivery_days=rfq.target_delivery_days,
+        delivery_location=rfq.delivery_location,
+        terms_conditions=rfq.terms_conditions,
+        status=rfq.status,
+        bid_price=rfq.bid_price,
+        bid_lead_time=rfq.bid_lead_time,
+        bid_comments=rfq.bid_comments,
+        created_at=rfq.created_at
     )
 
 @router.post("/{rfq_id}/bid", response_model=RFQResponse)

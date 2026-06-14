@@ -12,6 +12,8 @@ import { User, Truck, Building, Shield, Settings, Save, Sparkles } from 'lucide-
 export default function Profile() {
   const { user } = useAuth();
   const userRole = user?.role?.toLowerCase() || 'admin';
+  const adminEquivalentRoles = ['admin', 'procurement', 'supply_chain', 'operations', 'analyst', 'executive', 'other', 'user'];
+  const isAdminEquivalent = adminEquivalentRoles.includes(userRole);
 
   // Driver fields
   const [driverName, setDriverName] = useState(user?.full_name || 'Ramesh Kumar');
@@ -205,7 +207,7 @@ export default function Profile() {
                 )}
 
                 {/* Admin profile form fields */}
-                {userRole === 'admin' && (
+                {isAdminEquivalent && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
                       <Label htmlFor="adminName">Administrator Full Name</Label>

@@ -20,6 +20,7 @@ import DigitalTwin from "./pages/DigitalTwin";
 import SupplierSwap from "./pages/SupplierSwap";
 import Profile from "./pages/Profile";
 import AgentArena from "./pages/AgentArena";
+import DriverPortal from "./pages/DriverPortal";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,13 +49,20 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode;
 
   if (allowedRoles && user) {
     const role = user.role?.toLowerCase();
-    if (!allowedRoles.includes(role)) {
+    
+    // Internal/management roles that are equivalent to admin for page access
+    const adminEquivalentRoles = ['admin', 'procurement', 'supply_chain', 'operations', 'analyst', 'executive', 'other', 'user'];
+    
+    const isAllowed = allowedRoles.includes(role) || 
+                      (allowedRoles.includes('admin') && adminEquivalentRoles.includes(role));
+
+    if (!isAllowed) {
       if (role === 'driver') {
         return <Navigate to="/driver" replace />;
       } else if (role === 'supplier') {
         return <Navigate to="/supplier-portal" replace />;
       } else {
-        return <Navigate to="/dashboard" replace />;
+        return <Navigate to="/profile" replace />;
       }
     }
   }
@@ -82,6 +90,7 @@ const App = () => (
             <Route path="/sla-monitor" element={<ProtectedRoute allowedRoles={['admin']}><SLAMonitor /></ProtectedRoute>} />
             <Route path="/interventions" element={<ProtectedRoute allowedRoles={['admin']}><Interventions /></ProtectedRoute>} />
             <Route path="/supplier-portal" element={<ProtectedRoute allowedRoles={['supplier']}><SupplierPortal /></ProtectedRoute>} />
+            <Route path="/driver" element={<ProtectedRoute allowedRoles={['driver']}><DriverPortal /></ProtectedRoute>} />
             <Route path="/digital-twin" element={<ProtectedRoute allowedRoles={['admin']}><DigitalTwin /></ProtectedRoute>} />
             <Route path="/supplier-swap" element={<ProtectedRoute allowedRoles={['admin']}><SupplierSwap /></ProtectedRoute>} />
             <Route path="/agent-arena" element={<ProtectedRoute allowedRoles={['admin']}><AgentArena /></ProtectedRoute>} />

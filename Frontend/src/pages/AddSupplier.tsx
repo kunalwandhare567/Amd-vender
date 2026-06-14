@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { supplierService, ProductRow, Supplier } from '@/services/supplierService';
-import { Loader2, Plus, Trash2, Sparkles, CheckCircle2, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Loader2, Plus, Trash2, Sparkles, CheckCircle2, AlertTriangle, ArrowRight, Upload, Settings } from 'lucide-react';
+import { toast } from 'sonner';
 
 const DEFAULT_ROW: ProductRow = {
     product_type: 'skincare',
@@ -46,9 +47,100 @@ const AddSupplier = () => {
     const [location, setLocation] = useState('');
     const [products, setProducts] = useState<ProductRow[]>([{ ...DEFAULT_ROW }]);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isExtracting, setIsExtracting] = useState(false);
     const [result, setResult] = useState<Supplier | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [step, setStep] = useState<1 | 2 | 3>(1); // 1=info, 2=products, 3=results
+    const [userApiKey, setUserApiKey] = useState(localStorage.getItem('user_openrouter_api_key') || '');
+    const [userModel, setUserModel] = useState(localStorage.getItem('user_openrouter_model') || 'google/gemini-2.5-flash');
+    const [showSettings, setShowSettings] = useState(false);
+
+    const handleApiKeyChange = (val: string) => {
+        setUserApiKey(val);
+        if (val.trim()) {
+            localStorage.setItem('user_openrouter_api_key', val.trim());
+        } else {
+            localStorage.removeItem('user_openrouter_api_key');
+        }
+    };
+
+    const handleModelChange = (val: string) => {
+        setUserModel(val);
+        localStorage.setItem('user_openrouter_model', val);
+    };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsExtracting(true);
+        setError(null);
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const headers: Record<string, string> = {};
+        const token = localStorage.getItem('token');
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        const apiKey = localStorage.getItem('user_openrouter_api_key');
+        if (apiKey) {
+            headers['X-User-API-Key'] = apiKey;
+        }
+        const apiModel = localStorage.getItem('user_openrouter_model') || 'google/gemini-2.5-flash';
+        headers['X-User-Model'] = apiModel;
+
+        try {
+            const response = await fetch('http://localhost:8000/api/suppliers/extract-document', {
+                method: 'POST',
+                headers,
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData?.detail || 'Extraction failed');
+            }
+
+            const resData = await response.json();
+            const extracted = resData.data;
+
+            if (resData.warning) {
+                toast.warning('Extraction Notice', {
+                    description: resData.warning,
+                    duration: 6000,
+                });
+            }
+
+            if (extracted.name) setName(extracted.name);
+            if (extracted.location) setLocation(extracted.location);
+            if (extracted.products && extracted.products.length > 0) {
+                setProducts(extracted.products);
+                setStep(2);
+                toast.success(`Successfully extracted ${extracted.products.length} products!`, {
+                    description: `Loaded supplier "${extracted.name}" from ${extracted.location}`,
+                });
+            } else {
+                toast.warning(`Extracted supplier info, but no products were found.`, {
+                    description: `Loaded supplier "${extracted.name}" from ${extracted.location}`,
+                });
+            }
+        } catch (err: any) {
+            let msg = err.message || 'Failed to extract document. Make sure it is a valid PDF, Excel, or CSV.';
+            if (msg.includes('429') || msg.toLowerCase().includes('rate limit')) {
+                msg = 'OpenRouter Rate limit exceeded (429). Please add credits to your account, provide your own custom API key in API Settings, or try again later.';
+            }
+            setError(msg);
+            toast.error('AI Extraction Failed', {
+                description: msg,
+                duration: 8000,
+            });
+        } finally {
+            setIsExtracting(false);
+            e.target.value = '';
+        }
+    };
 
     const addRow = () => {
         setProducts(prev => [
@@ -74,7 +166,23 @@ const AddSupplier = () => {
         setError(null);
         setIsSubmitting(true);
         try {
-            const res = await supplierService.addSupplier({ name, location, products });
+            const parsedProducts = products.map(r => ({
+                ...r,
+                price: Number(r.price) || 0,
+                availability: Number(r.availability) || 0,
+                number_sold: Number(r.number_sold) || 0,
+                revenue: Number(r.revenue) || 0,
+                stock_level: Number(r.stock_level) || 0,
+                lead_time: Number(r.lead_time) || 0,
+                order_quantity: Number(r.order_quantity) || 0,
+                shipping_time: Number(r.shipping_time) || 0,
+                shipping_cost: Number(r.shipping_cost) || 0,
+                production_volume: Number(r.production_volume) || 0,
+                manufacturing_lead_time: Number(r.manufacturing_lead_time) || 0,
+                manufacturing_cost: Number(r.manufacturing_cost) || 0,
+                defect_rate: Number(r.defect_rate) || 0,
+            }));
+            const res = await supplierService.addSupplier({ name, location, products: parsedProducts });
             setResult(res.data);
             setStep(3);
         } catch (err: any) {
@@ -139,8 +247,87 @@ const AddSupplier = () => {
 
                 {/* Step 1: Supplier Info */}
                 {step === 1 && (
-                    <div className="card-base p-6 space-y-4 animate-fade-in">
-                        <h2 className="text-lg font-semibold text-foreground">Step 1 — Supplier Information</h2>
+                    <div className="card-base p-6 space-y-6 animate-fade-in">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-lg font-semibold text-foreground">Step 1 — Supplier Information</h2>
+                            <button
+                                onClick={() => setShowSettings(!showSettings)}
+                                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-all ${showSettings
+                                        ? 'bg-primary/10 border-primary text-primary'
+                                        : 'border-border text-muted-foreground hover:bg-muted'
+                                    }`}
+                            >
+                                <Settings className={`w-3.5 h-3.5 ${showSettings ? 'animate-spin' : ''}`} />
+                                API Settings {userApiKey ? '• Key Set' : '(Optional)'}
+                            </button>
+                        </div>
+
+                        {showSettings && (
+                            <div className="p-4 rounded-xl bg-muted/40 border border-border/60 space-y-4 animate-slide-down">
+                                <p className="text-xs text-muted-foreground font-medium">
+                                    🔧 Configure your custom OpenRouter details to avoid rate limits (429 errors). Settings are saved in your browser.
+                                </p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1">OpenRouter API Key</label>
+                                        <input
+                                            type="password"
+                                            value={userApiKey}
+                                            onChange={e => handleApiKeyChange(e.target.value)}
+                                            placeholder="Paste your sk-or-... key"
+                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-1">Extraction LLM Model</label>
+                                        <select
+                                            value={userModel}
+                                            onChange={e => handleModelChange(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                        >
+                                            <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (Recommended - Fast & Large Window)</option>
+                                            <option value="openai/gpt-4o-mini">GPT-4o Mini (High schema precision)</option>
+                                            <option value="google/gemini-2.5-flash:free">Gemini 2.5 Flash (Free - 50 req/day)</option>
+                                            <option value="meta-llama/llama-3-8b-instruct:free">Llama 3 8B Free (50 req/day)</option>
+                                            <option value="google/gemma-2-9b-it:free">Gemma 2 9B Free (50 req/day)</option>
+                                            <option value="deepseek/deepseek-chat:free">DeepSeek Chat Free (50 req/day)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                {userApiKey && (
+                                    <p className="text-[10px] text-green-400 flex items-center gap-1 font-semibold">
+                                        ✓ Key active and saved locally.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                        
+                        {/* File Upload Zone */}
+                        <div className="border-2 border-dashed border-primary/20 hover:border-primary/45 rounded-xl p-6 bg-muted/20 flex flex-col items-center justify-center text-center transition-all relative overflow-hidden group">
+                            <Upload className="w-10 h-10 text-primary mb-2 group-hover:scale-110 transition-transform duration-300" />
+                            <p className="font-semibold text-sm text-foreground mb-1">Upload Supplier Document (PDF, Excel, CSV)</p>
+                            <p className="text-xs text-muted-foreground max-w-sm mb-4">
+                                Drag & drop or click to upload a catalog, invoice, or supplier list. AI will automatically extract the supplier name, location, and all product rows.
+                            </p>
+                            <input
+                                type="file"
+                                accept=".pdf,.csv,.xlsx,.xls"
+                                onChange={handleFileUpload}
+                                disabled={isExtracting}
+                                className="absolute inset-0 opacity-0 cursor-pointer"
+                            />
+                            {isExtracting ? (
+                                <div className="flex items-center gap-2 text-primary font-medium text-sm">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    AI is Extracting Data...
+                                </div>
+                            ) : (
+                                <button className="px-4 py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 text-sm font-semibold transition">
+                                    Browse Files
+                                </button>
+                            )}
+                        </div>
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-muted-foreground mb-1">Supplier Name *</label>
@@ -223,29 +410,28 @@ const AddSupplier = () => {
                                             <tr key={idx} className="border-b border-border/30 hover:bg-muted/20">
                                                 <td className="px-2 py-1 text-muted-foreground">{idx + 1}</td>
                                                 <td className="px-1 py-1">
-                                                    <select value={row.product_type} onChange={e => updateRow(idx, 'product_type', e.target.value)}
-                                                        className="w-24 px-1 py-1 text-xs rounded border border-border bg-background text-foreground">
-                                                        {PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                                    </select>
+                                                    <input value={row.product_type} onChange={e => updateRow(idx, 'product_type', e.target.value)}
+                                                        placeholder="e.g. skincare"
+                                                        className="w-24 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
                                                     <input value={row.sku} onChange={e => updateRow(idx, 'sku', e.target.value)}
                                                         className="w-20 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.price} onChange={e => updateRow(idx, 'price', +e.target.value)}
+                                                    <input type="number" value={row.price} onChange={e => updateRow(idx, 'price', e.target.value)}
                                                         className="w-16 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.availability} onChange={e => updateRow(idx, 'availability', +e.target.value)}
+                                                    <input type="number" value={row.availability} onChange={e => updateRow(idx, 'availability', e.target.value)}
                                                         className="w-14 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.number_sold} onChange={e => updateRow(idx, 'number_sold', +e.target.value)}
+                                                    <input type="number" value={row.number_sold} onChange={e => updateRow(idx, 'number_sold', e.target.value)}
                                                         className="w-16 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.revenue} onChange={e => updateRow(idx, 'revenue', +e.target.value)}
+                                                    <input type="number" value={row.revenue} onChange={e => updateRow(idx, 'revenue', e.target.value)}
                                                         className="w-20 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
@@ -255,23 +441,23 @@ const AddSupplier = () => {
                                                     </select>
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.stock_level} onChange={e => updateRow(idx, 'stock_level', +e.target.value)}
+                                                    <input type="number" value={row.stock_level} onChange={e => updateRow(idx, 'stock_level', e.target.value)}
                                                         className="w-14 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.lead_time} onChange={e => updateRow(idx, 'lead_time', +e.target.value)}
+                                                    <input type="number" value={row.lead_time} onChange={e => updateRow(idx, 'lead_time', e.target.value)}
                                                         className="w-14 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.order_quantity} onChange={e => updateRow(idx, 'order_quantity', +e.target.value)}
+                                                    <input type="number" value={row.order_quantity} onChange={e => updateRow(idx, 'order_quantity', e.target.value)}
                                                         className="w-16 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.shipping_time} onChange={e => updateRow(idx, 'shipping_time', +e.target.value)}
+                                                    <input type="number" value={row.shipping_time} onChange={e => updateRow(idx, 'shipping_time', e.target.value)}
                                                         className="w-14 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.shipping_cost} onChange={e => updateRow(idx, 'shipping_cost', +e.target.value)}
+                                                    <input type="number" value={row.shipping_cost} onChange={e => updateRow(idx, 'shipping_cost', e.target.value)}
                                                         className="w-14 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
@@ -281,19 +467,19 @@ const AddSupplier = () => {
                                                     </select>
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.production_volume} onChange={e => updateRow(idx, 'production_volume', +e.target.value)}
+                                                    <input type="number" value={row.production_volume} onChange={e => updateRow(idx, 'production_volume', e.target.value)}
                                                         className="w-16 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.manufacturing_lead_time} onChange={e => updateRow(idx, 'manufacturing_lead_time', +e.target.value)}
+                                                    <input type="number" value={row.manufacturing_lead_time} onChange={e => updateRow(idx, 'manufacturing_lead_time', e.target.value)}
                                                         className="w-14 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.manufacturing_cost} onChange={e => updateRow(idx, 'manufacturing_cost', +e.target.value)}
+                                                    <input type="number" value={row.manufacturing_cost} onChange={e => updateRow(idx, 'manufacturing_cost', e.target.value)}
                                                         className="w-16 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">
-                                                    <input type="number" value={row.defect_rate} onChange={e => updateRow(idx, 'defect_rate', +e.target.value)}
+                                                    <input type="number" value={row.defect_rate} onChange={e => updateRow(idx, 'defect_rate', e.target.value)}
                                                         className="w-14 px-1 py-1 text-xs rounded border border-border bg-background text-foreground" />
                                                 </td>
                                                 <td className="px-1 py-1">

@@ -11,6 +11,7 @@
   "digital_twin": "Digital Twin Simulator",
   "rfq_autopilot": "RFQ Autopilot",
   "profile": "Profile Settings",
+  "driver_portal": "Driver Portal",
   "supplier_excellence": "Supplier Excellence",
   "welcome": "Welcome, {{name}}!",
   "total_suppliers": "Total Suppliers",

@@ -15,6 +15,14 @@ api.interceptors.request.use(
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
+        const apiKey = localStorage.getItem('user_openrouter_api_key');
+        if (apiKey) {
+            config.headers['X-User-API-Key'] = apiKey;
+        }
+        const apiModel = localStorage.getItem('user_openrouter_model');
+        if (apiModel) {
+            config.headers['X-User-Model'] = apiModel;
+        }
         return config;
     },
     (error) => {

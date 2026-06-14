@@ -1,17 +1,19 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { SupplierTable } from '@/components/suppliers/SupplierTable';
 import { SearchInput } from '@/components/common/SearchInput';
 import { Pagination } from '@/components/common/Pagination';
 import { ReportModal } from '@/components/modals/ReportModal';
 import { supplierService } from '@/services/supplierService';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
 
 const Suppliers = () => {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [riskFilter, setRiskFilter] = useState<string>('all');
@@ -49,14 +51,23 @@ const Suppliers = () => {
       <div className="p-6 lg:p-8 space-y-6">
         {/* Header */}
         <motion.header
+          className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <h1 className="text-3xl font-bold text-foreground mb-2">Supplier Management</h1>
-          <p className="text-muted-foreground">
-            View and manage all suppliers in your network.
-          </p>
+          <div>
+            <h1 className="text-3xl font-bold text-foreground mb-2">Supplier Management</h1>
+            <p className="text-muted-foreground">
+              View and manage all suppliers in your network.
+            </p>
+          </div>
+          <button
+            onClick={() => navigate('/add-supplier')}
+            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground font-semibold hover:opacity-90 transition flex items-center gap-2 shadow-lg shadow-primary/20"
+          >
+            <Plus className="w-5 h-5" /> Add Supplier
+          </button>
         </motion.header>
 
         {/* Filters */}

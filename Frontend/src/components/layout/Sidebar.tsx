@@ -31,15 +31,6 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    label: 'add_supplier',
-    path: '/add-supplier',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-      </svg>
-    ),
-  },
-  {
     label: 'alerts',
     path: '/alerts',
     icon: (
@@ -113,6 +104,16 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: 'driver_portal',
+    path: '/driver',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
+      </svg>
+    ),
+  },
+  {
     label: 'profile',
     path: '/profile',
     icon: (
@@ -150,8 +151,11 @@ export function Sidebar() {
     if (userRole === 'supplier') {
       return item.path === '/supplier-portal' || item.path === '/profile';
     }
-    // Admin sees all except supplier portal
-    return item.path !== '/supplier-portal';
+    if (userRole === 'driver') {
+      return item.path === '/driver' || item.path === '/profile';
+    }
+    // Admin/Internal sees all except supplier portal and driver portal
+    return item.path !== '/supplier-portal' && item.path !== '/driver';
   });
 
   return (
@@ -218,22 +222,12 @@ export function Sidebar() {
               <p className="text-xs text-muted-foreground capitalize">{userRole} Account</p>
             </div>
           </div>
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-sidebar-border/30">
-            <select
-              value={i18n.language}
-              onChange={e => i18n.changeLanguage(e.target.value)}
-              className="border rounded px-2 py-1 text-xs bg-background"
-              style={{ minWidth: 80 }}
-            >
-              {languages.map(lang => (
-                <option key={lang.code} value={lang.code}>{lang.name}</option>
-              ))}
-            </select>
+          <div className="flex items-center justify-center mt-3 pt-3 border-t border-sidebar-border/30 w-full">
             <Button
               variant="ghost"
               size="sm"
               onClick={logout}
-              className="h-7 px-2 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center gap-1.5 transition-all duration-200"
+              className="h-8 w-full text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center justify-center gap-1.5 transition-all duration-200"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

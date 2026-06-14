@@ -219,11 +219,11 @@ export default function Login() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 p-2 bg-muted/30 rounded-lg">
+                <div className="grid grid-cols-2 gap-2 p-2 bg-muted/30 rounded-lg">
                   <button
                     type="button"
                     onClick={() => {
-                      setEmail('admin@supplier.com');
+                      setEmail('admin@vendorverse.com');
                       setPassword('admin123');
                     }}
                     className="text-center p-2 rounded hover:bg-background border border-border/50 transition-all text-xs font-semibold"
@@ -233,17 +233,7 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={() => {
-                      setEmail('driver@supplier.com');
-                      setPassword('driver123');
-                    }}
-                    className="text-center p-2 rounded hover:bg-background border border-border/50 transition-all text-xs font-semibold"
-                  >
-                    Driver
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmail('supplier@supplier.com');
+                      setEmail('supplier@vendorverse.com');
                       setPassword('supplier123');
                     }}
                     className="text-center p-2 rounded hover:bg-background border border-border/50 transition-all text-xs font-semibold"

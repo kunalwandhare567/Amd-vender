@@ -30,6 +30,7 @@ class Supplier(SQLModel, table=True):
     avg_total_cost: float                      # avg total cost per product
     customer_demographics: str                 # JSON list: '["Male","Female","Non-binary"]'
     num_skus: int                              # count of unique SKUs
+    phone: Optional[str] = Field(default=None)
 
     # ── AI-evaluated fields (computed, not from dataset) ─────────────
     overall_score: Optional[float] = None      # AI composite score (0-100)

@@ -813,7 +813,6 @@ Output ONLY valid JSON, no markdown."""
             supplier.risk_level = "High"
         else:
             supplier.risk_level = "Critical"
-
         otd = 100 - (max(0, supplier.avg_lead_time - 12) * 1.5) - (max(0, supplier.avg_shipping_time - 4) * 2)
         supplier.otd_percentage = round(max(50, min(99, otd)), 1)
         print(f"  Rule-based fallback {supplier.name}: score={supplier.overall_score}, risk={supplier.risk_level}, otd={supplier.otd_percentage}%")
@@ -830,9 +829,70 @@ class SendMessageRequest(BaseModel):
     sender: str = "Admin"
     sender_email: str
     recipient_email: str
+    recipient_phone: Optional[str] = None
     subject: str
     message: str
-    sent_via: str  # "Portal", "Email", or "Both"
+    sent_via: str  # "Portal", "Email", or "SMS"
+
+
+class GenerateDraftRequest(BaseModel):
+    subject: str
+
+
+@router.post("/{supplier_id}/draft-email", response_model=dict)
+async def generate_draft_email(
+    supplier_id: str,
+    request: GenerateDraftRequest,
+    session: Session = Depends(get_session),
+    x_user_api_key: Optional[str] = Header(None, alias="X-User-API-Key"),
+    x_user_model: Optional[str] = Header(None, alias="X-User-Model")
+):
+    supplier = session.get(Supplier, supplier_id)
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    try:
+        from llm import get_llm
+        from langchain_core.messages import HumanMessage
+
+        api_key = x_user_api_key or os.getenv("OPENROUTER_API_KEY")
+        model = x_user_model or "google/gemini-2.5-flash"
+
+        llm = get_llm(api_key=api_key, model=model, temperature=0.5)
+
+        prompt = f"""You are a supply chain analyst and communications expert at VendorVerse.
+Write a professional, clear, and direct message/email to the supplier '{supplier.name}' regarding the subject: '{request.subject}'.
+
+Use the following supplier performance data to ground the details and context if relevant (do not invent data):
+- Supplier ID: {supplier.supplier_id}
+- Overall Score: {supplier.overall_score if supplier.overall_score else 'N/A'}/100
+- On-Time Delivery Rate: {supplier.otd_percentage if supplier.otd_percentage else 'N/A'}%
+- Defect Rate: {supplier.defect_rate}%
+- Inspection Pass Rate: {supplier.inspection_pass_rate}%
+- Lead Time: {supplier.avg_lead_time} days
+- Region: {supplier.region or 'N/A'}
+
+Guidelines:
+1. Maintain a professional, collaborative business tone.
+2. Be concise and structured.
+3. Do not include placeholders like '[Your Name]', '[Date]', or '[Supplier Contact]'. Keep them empty or sign off as 'VendorVerse Procurement Team'.
+4. Output ONLY the email/message body content, with no markdown headers (like 'Subject:') or surrounding explanation blocks. Start directly with the greeting.
+"""
+
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        draft_content = response.content.strip()
+
+        if draft_content.startswith("```"):
+            lines = draft_content.split("\n")
+            if len(lines) > 2:
+                draft_content = "\n".join(lines[1:-1])
+
+        return {"success": True, "draft": draft_content}
+
+    except Exception as e:
+        print(f"Failed to generate AI draft: {e}")
+        fallback_draft = f"Dear {supplier.name} Team,\n\nWe are writing to discuss: '{request.subject}'.\n\nBased on our records, your overall performance score is {supplier.overall_score or 'N/A'}/100 with an on-time delivery rate of {supplier.otd_percentage or 'N/A'}% and a defect rate of {supplier.defect_rate}%.\n\nPlease let us know your availability to discuss this topic further.\n\nBest regards,\nVendorVerse Procurement Team"
+        return {"success": True, "draft": fallback_draft}
 
 
 @router.post("/{supplier_id}/messages", response_model=dict)
@@ -859,7 +919,8 @@ def send_supplier_message(
     session.commit()
     session.refresh(db_msg)
 
-    print(f"[{request.sent_via.upper()}] Sent message from {request.sender_email} to {request.recipient_email} re: '{request.subject}'")
+    recipient = request.recipient_phone if request.sent_via == "SMS" else request.recipient_email
+    print(f"[{request.sent_via.upper()}] Sent message from {request.sender_email} to {recipient} re: '{request.subject}'")
 
     return {"success": True, "data": db_msg}
 
@@ -877,4 +938,3 @@ def get_supplier_messages(
     messages = session.exec(query).all()
 
     return {"success": True, "data": messages}
-

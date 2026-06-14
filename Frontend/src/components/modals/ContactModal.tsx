@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { Loader2, Send, Mail, MessageSquare } from 'lucide-react';
+import { Loader2, Send, Mail, MessageSquare, Phone, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface SupplierMessage {
@@ -19,6 +19,7 @@ interface ContactModalProps {
   supplier: {
     supplier_id: string;
     name: string;
+    phone?: string;
   } | null;
   isOpen: boolean;
   onClose: () => void;
@@ -27,10 +28,12 @@ interface ContactModalProps {
 export function ContactModal({ supplier, isOpen, onClose }: ContactModalProps) {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
-  const [sentVia, setSentVia] = useState<'Portal' | 'Email' | 'Both'>('Portal');
+  const [sentVia, setSentVia] = useState<'Portal' | 'Email' | 'SMS'>('Portal');
+  const [phone, setPhone] = useState('');
   const [messages, setMessages] = useState<SupplierMessage[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
 
   const fetchHistory = async () => {
     if (!supplier) return;
@@ -51,9 +54,29 @@ export function ContactModal({ supplier, isOpen, onClose }: ContactModalProps) {
     if (isOpen && supplier) {
       setSubject('');
       setMessage('');
+      setPhone(supplier.phone || '+91 98765 43210');
       fetchHistory();
     }
   }, [isOpen, supplier]);
+
+  const handleGenerateDraft = async () => {
+    if (!supplier || !subject.trim()) return;
+    setIsGeneratingDraft(true);
+    try {
+      const response = await api.post(`/suppliers/${supplier.supplier_id}/draft-email`, {
+        subject: subject.trim()
+      });
+      if (response.data.success) {
+        setMessage(response.data.draft);
+        toast.success('AI draft email generated!');
+      }
+    } catch (error) {
+      console.error('Failed to generate draft:', error);
+      toast.error('Failed to generate draft.');
+    } finally {
+      setIsGeneratingDraft(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,21 +88,20 @@ export function ContactModal({ supplier, isOpen, onClose }: ContactModalProps) {
 
     setIsSending(true);
     try {
-      // Mock emails/contacts
       const response = await api.post(`/suppliers/${supplier.supplier_id}/messages`, {
         sender: 'Admin',
         sender_email: 'admin@vendorverse.com',
         recipient_email: `${supplier.name.toLowerCase().replace(/\s+/g, '')}@example.com`,
+        recipient_phone: sentVia === 'SMS' ? phone : null,
         subject: subject.trim(),
         message: message.trim(),
         sent_via: sentVia,
       });
 
       if (response.data.success) {
-        toast.success(`Message sent successfully via ${sentVia}!`);
+        toast.success(`Message sent successfully via ${sentVia === 'SMS' ? 'SMS' : sentVia}!`);
         setMessage('');
         setSubject('');
-        // Reload history
         fetchHistory();
       }
     } catch (error) {
@@ -140,35 +162,69 @@ export function ContactModal({ supplier, isOpen, onClose }: ContactModalProps) {
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Send Communication Via</label>
               <div className="flex gap-2">
-                {(['Portal', 'Email', 'Both'] as const).map(option => (
+                {([
+                  { id: 'Portal', label: 'Portal', icon: <MessageSquare className="w-3.5 h-3.5" /> },
+                  { id: 'Email', label: 'Email', icon: <Mail className="w-3.5 h-3.5" /> },
+                  { id: 'SMS', label: 'Contact No.', icon: <Phone className="w-3.5 h-3.5" /> }
+                ] as const).map(option => (
                   <button
-                    key={option}
+                    key={option.id}
                     type="button"
-                    onClick={() => setSentVia(option)}
+                    onClick={() => setSentVia(option.id)}
                     className={`flex-1 py-2 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${
-                      sentVia === option
+                      sentVia === option.id
                         ? 'bg-primary text-primary-foreground border-primary'
                         : 'border-border text-muted-foreground hover:text-foreground hover:bg-secondary/40'
                     }`}
                   >
-                    {option === 'Email' ? <Mail className="w-3.5 h-3.5" /> : <MessageSquare className="w-3.5 h-3.5" />}
-                    {option}
+                    {option.icon}
+                    {option.label}
                   </button>
                 ))}
               </div>
             </div>
 
+            {sentVia === 'SMS' && (
+              <div className="space-y-1.5 animate-fade-in">
+                <label htmlFor="phone" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Recipient Phone (SMS)</label>
+                <input
+                  id="phone"
+                  type="text"
+                  className="input-base"
+                  placeholder="e.g. +91 98765 43210"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <label htmlFor="subject" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Subject</label>
-              <input
-                id="subject"
-                type="text"
-                className="input-base"
-                placeholder="e.g. Quality SLA warning or Shipment Inquiry"
-                value={subject}
-                onChange={e => setSubject(e.target.value)}
-                required
-              />
+              <div className="flex gap-2">
+                <input
+                  id="subject"
+                  type="text"
+                  className="input-base flex-1"
+                  placeholder="e.g. Quality SLA warning or Shipment Inquiry"
+                  value={subject}
+                  onChange={e => setSubject(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={handleGenerateDraft}
+                  disabled={isGeneratingDraft || !subject.trim()}
+                  className="px-3 py-2.5 rounded-lg text-xs font-semibold bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+                  title="Generate email draft using AI based on this subject"
+                >
+                  {isGeneratingDraft ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" />Drafting...</>
+                  ) : (
+                    <><Sparkles className="w-3.5 h-3.5" />AI Draft</>
+                  )}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-1.5">

@@ -12,7 +12,7 @@ import json
 from dotenv import load_dotenv
 from sqlmodel import Session, select, SQLModel
 from database import engine, create_db_and_tables
-from models import Supplier, Alert, User, SLAMetric, Intervention
+from models import Supplier, Alert, User, SLAMetric, Intervention, Driver, InvoiceTrip, Incident
 from auth.security import get_password_hash
 from seed_data.suppliers import get_kaggle_suppliers
 from seed_data.alerts import get_realistic_alerts
@@ -178,11 +178,70 @@ def seed_data():
             session.add(supplier_user)
             print("Supplier user created.")
 
+        # Seed Driver User
+        driver_email = "driver@vendorverse.com"
+        existing_driver = session.exec(select(User).where(User.email == driver_email)).first()
+        if not existing_driver:
+            driver_user = User(
+                email=driver_email,
+                password_hash=get_password_hash("driver123"),
+                full_name="Kunal Wandhare",
+                role="driver"
+            )
+            session.add(driver_user)
+            print("Driver user created.")
+
+        # Seed Driver Table Entry
+        existing_driver_record = session.get(Driver, "DRV-001")
+        if not existing_driver_record:
+            driver_record = Driver(
+                id="DRV-001",
+                name="Kunal Wandhare",
+                phone="+91 98765 43210",
+                truck_no="MH-12-QW-5678",
+                status="On Trip",
+                supplier_id="SUP001",
+                current_lat=19.2183,
+                current_lng=72.9781
+            )
+            session.add(driver_record)
+            print("Driver record created.")
+
+        # Seed default InvoiceTrip
+        existing_trip = session.get(InvoiceTrip, "TRIP-0001")
+        if not existing_trip:
+            from routers.routing import dijkstra
+            route = dijkstra("Thane Warehouse", "Pimpri Chinchwad Plant")
+            route_json_str = "[]"
+            if route:
+                route_json_str = json.dumps(route["coordinates"])
+                
+            trip = InvoiceTrip(
+                id="TRIP-0001",
+                product_name="Industrial Capacitors (Batch-C44)",
+                quantity=500,
+                driver_id="DRV-001",
+                supplier_id="SUP001",
+                source_location="Thane Warehouse",
+                source_lat=19.2183,
+                source_lng=72.9781,
+                destination_location="Pimpri Chinchwad Plant",
+                destination_lat=18.6278,
+                destination_lng=73.8131,
+                status="In Transit",
+                route_json=route_json_str,
+                current_progress=35.0,
+                est_arrival="2026-06-14T14:00:00"
+            )
+            session.add(trip)
+            print("Default trip created.")
+
         session.commit()
         print(f"\nDatabase seeded with {len(suppliers)} suppliers, {len(alerts)} alerts, SLA metrics, interventions, and demo user accounts.")
         print("\nDemo Credentials:")
         print(f"  Admin:    {admin_email} / admin123")
         print(f"  Supplier: {supplier_email} / supplier123")
+        print(f"  Driver:   {driver_email} / driver123")
 
 
 if __name__ == "__main__":

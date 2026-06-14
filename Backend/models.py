@@ -150,3 +150,53 @@ class SupplierDocument(SQLModel, table=True):
     file_path: Optional[str] = None  # server-side path
     uploaded_by: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Driver(SQLModel, table=True):
+    __tablename__ = "drivers"
+    id: str = Field(primary_key=True)
+    name: str
+    phone: str = Field(default="")
+    truck_no: str = Field(default="")
+    status: str = Field(default="Available")  # Available, On Trip
+    supplier_id: Optional[str] = Field(default=None, foreign_key="supplier.supplier_id")
+    current_lat: Optional[float] = Field(default=None)
+    current_lng: Optional[float] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class InvoiceTrip(SQLModel, table=True):
+    __tablename__ = "invoice_trips"
+    id: str = Field(primary_key=True)
+    product_name: str
+    quantity: int
+    driver_id: str = Field(foreign_key="drivers.id")
+    supplier_id: Optional[str] = Field(default=None, foreign_key="supplier.supplier_id")
+    source_location: str
+    source_lat: float
+    source_lng: float
+    destination_location: str
+    destination_lat: float
+    destination_lng: float
+    status: str = Field(default="Scheduled")  # Scheduled, In Transit, Delayed, Completed
+    route_json: str
+    current_progress: float = Field(default=0.0)
+    est_arrival: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Incident(SQLModel, table=True):
+    __tablename__ = "incidents"
+    id: str = Field(primary_key=True)
+    type: str
+    location: str
+    severity: str
+    start_time: datetime = Field(default_factory=datetime.utcnow)
+    description: str
+    affected_supplier_id: Optional[str] = Field(default=None, foreign_key="supplier.supplier_id")
+    status: str = Field(default="Active")  # Active, Resolved
+    reported_by: str = Field(default="Driver")  # Driver, AI, Admin
+    lat: Optional[float] = Field(default=None)
+    lng: Optional[float] = Field(default=None)
+    trip_id: Optional[str] = Field(default=None)
+

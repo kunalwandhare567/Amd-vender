@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File, Header
 from sqlmodel import Session, select
 from typing import List, Optional
 from pydantic import BaseModel
@@ -257,6 +257,408 @@ def generate_report(supplier_id: str, session: Session = Depends(get_session)):
             "generated_date": datetime.utcnow().isoformat()
         }
     }
+
+
+def extract_tabular_data_locally(contents: bytes, ext: str) -> Optional[dict]:
+    import io
+    import csv
+    
+    rows = []
+    if ext in (".xlsx", ".xls"):
+        try:
+            import openpyxl
+            excel_file = io.BytesIO(contents)
+            wb = openpyxl.load_workbook(excel_file, data_only=True)
+            sheet = wb.active
+            for r in sheet.iter_rows(values_only=True):
+                rows.append([val for val in r])
+        except Exception as e:
+            print(f"Local Excel reading failed: {e}")
+            return None
+    elif ext == ".csv":
+        try:
+            text_content = contents.decode("utf-8", errors="ignore")
+            reader = csv.reader(io.StringIO(text_content))
+            for r in reader:
+                rows.append(r)
+        except Exception as e:
+            print(f"Local CSV reading failed: {e}")
+            return None
+    else:
+        return None
+
+    if not rows:
+        return None
+
+    header_mappings = {
+        "product_type": ['product type', 'product_type', 'type', 'category', 'prod type', 'prod_type'],
+        "sku": ['sku', 'product id', 'product_id', 'code', 'id', 'item number', 'item_number', 'item no', 'item_no', 'skucode'],
+        "price": ['price', 'unit price', 'unit_price', 'sell price', 'rate', 'price/unit', 'price per unit'],
+        "availability": ['availability', 'avail', 'in stock %', 'available', 'availability%', 'avail%', 'in_stock_percent'],
+        "number_sold": ['number sold', 'number_sold', 'sold', 'quantity sold', 'sales', 'units sold', 'qty sold', 'sold qty', 'sold_qty', 'qty_sold'],
+        "revenue": ['revenue', 'total revenue', 'turnover', 'sales amount', 'total_revenue', 'sales_amount', 'rev'],
+        "customer_demographics": ['customer demographics', 'customer_demographics', 'demographics', 'gender', 'audience', 'demo'],
+        "stock_level": ['stock level', 'stock_level', 'stock', 'inventory', 'quantity in stock', 'stock level qty', 'stock_qty'],
+        "lead_time": ['lead time', 'lead_time', 'replenishment time', 'lead time days', 'lead_days', 'lead_time_days'],
+        "order_quantity": ['order quantity', 'order_quantity', 'avg order quantity', 'order qty', 'order_qty', 'avg_order_qty'],
+        "shipping_time": ['shipping time', 'shipping_time', 'transit time', 'delivery days', 'shipping_days', 'shipping_time_days'],
+        "shipping_cost": ['shipping cost', 'shipping_cost', 'shipping price', 'freight cost', 'shipping_fee', 'ship_cost'],
+        "shipping_carrier": ['shipping carrier', 'shipping_carrier', 'carrier', 'shipper', 'shipping_company'],
+        "production_volume": ['production volume', 'production_volume', 'prod volume', 'volume', 'prod_vol', 'production_vol'],
+        "manufacturing_lead_time": ['manufacturing lead time', 'manufacturing_lead_time', 'mfg lead time', 'production time', 'mfg_lead_time', 'manufacturing_time'],
+        "manufacturing_cost": ['manufacturing cost', 'manufacturing_cost', 'mfg cost', 'unit cost', 'production cost', 'mfg_cost', 'cost_to_make'],
+        "defect_rate": ['defect rate', 'defect_rate', 'defects', 'defect %', 'defect_rate_percentage', 'defect%', 'defects%'],
+        "transportation_mode": ['transportation mode', 'transportation_mode', 'transport', 'shipping mode', 'mode', 'transport_mode'],
+        "route": ['route', 'shipping route', 'transit route', 'shipping_route'],
+        "inspection_result": ['inspection result', 'inspection_result', 'quality inspection', 'inspection', 'inspection_status', 'status']
+    }
+
+    header_idx = -1
+    col_map = {}
+
+    for i, r in enumerate(rows):
+        if not r:
+            continue
+        matches = 0
+        temp_map = {}
+        for col_i, cell in enumerate(r):
+            if cell is None:
+                continue
+            cell_str = str(cell).strip().lower()
+            for schema_key, syns in header_mappings.items():
+                if cell_str in syns:
+                    temp_map[schema_key] = col_i
+                    matches += 1
+                    break
+        if matches >= 2:
+            header_idx = i
+            col_map = temp_map
+            break
+
+    if header_idx == -1:
+        return None
+
+    products = []
+    supplier_name = "Unknown Supplier"
+    supplier_location = "Unknown"
+
+    for i in range(header_idx):
+        r = rows[i]
+        if not r:
+            continue
+        for col_i, cell in enumerate(r):
+            if cell is None:
+                continue
+            cell_str = str(cell).strip().lower()
+            if "supplier" in cell_str or "company" in cell_str or "vendor" in cell_str:
+                if col_i + 1 < len(r) and r[col_i + 1]:
+                    supplier_name = str(r[col_i + 1]).strip()
+                elif ":" in cell_str:
+                    parts = cell_str.split(":", 1)
+                    if len(parts) > 1 and parts[1].strip():
+                         supplier_name = parts[1].strip().title()
+            if "location" in cell_str or "address" in cell_str or "city" in cell_str:
+                if col_i + 1 < len(r) and r[col_i + 1]:
+                    supplier_location = str(r[col_i + 1]).strip()
+                elif ":" in cell_str:
+                    parts = cell_str.split(":", 1)
+                    if len(parts) > 1 and parts[1].strip():
+                        supplier_location = parts[1].strip().title()
+
+    for i in range(header_idx + 1, len(rows)):
+        r = rows[i]
+        if not r or all(cell is None or str(cell).strip() == "" for cell in r):
+            continue
+        
+        p_data = {}
+        defaults = {
+            "product_type": "skincare",
+            "sku": f"SKU-{i:03d}",
+            "price": 50.0,
+            "availability": 80.0,
+            "number_sold": 500,
+            "revenue": 25000.0,
+            "customer_demographics": "Female",
+            "stock_level": 60.0,
+            "lead_time": 15.0,
+            "order_quantity": 500,
+            "shipping_time": 5.0,
+            "shipping_cost": 6.0,
+            "shipping_carrier": "Carrier A",
+            "production_volume": 800,
+            "manufacturing_lead_time": 12.0,
+            "manufacturing_cost": 30.0,
+            "defect_rate": 2.0,
+            "transportation_mode": "Road",
+            "route": "Route A",
+            "inspection_result": "Pass"
+        }
+
+        for key, default_val in defaults.items():
+            if key in col_map:
+                col_i = col_map[key]
+                if col_i < len(r) and r[col_i] is not None:
+                    val = r[col_i]
+                    try:
+                        if isinstance(default_val, int):
+                            p_data[key] = int(float(str(val).replace("$", "").replace(",", "").strip()))
+                        elif isinstance(default_val, float):
+                            p_data[key] = float(str(val).replace("$", "").replace(",", "").replace("%", "").strip())
+                        else:
+                            p_data[key] = str(val).strip()
+                    except Exception:
+                        p_data[key] = default_val
+                else:
+                    p_data[key] = default_val
+            else:
+                p_data[key] = default_val
+        products.append(p_data)
+
+    return {
+        "name": supplier_name,
+        "location": supplier_location,
+        "products": products
+    }
+
+
+async def retrieve_relevant_chunks(
+    text: str,
+    queries: list[str],
+    api_key: Optional[str] = None,
+    top_k: int = 5
+) -> list[str]:
+    chunk_size = 1000
+    overlap = 200
+    chunks = []
+    start = 0
+    text_stripped = text.strip()
+    while start < len(text_stripped):
+        end = min(start + chunk_size, len(text_stripped))
+        chunk = text_stripped[start:end]
+        if chunk.strip():
+            chunks.append(chunk)
+        start += chunk_size - overlap
+        
+    if not chunks:
+        return []
+        
+    if len(chunks) <= top_k:
+        return chunks
+
+    try:
+        from rag.store import embed_texts
+        chunk_embeddings = embed_texts(chunks, api_key=api_key)
+        
+        retrieved_chunks = set()
+        for query in queries:
+            query_emb = embed_texts([query], api_key=api_key)[0]
+            scores = []
+            for i, chunk_emb in enumerate(chunk_embeddings):
+                dot = sum(x * y for x, y in zip(query_emb, chunk_emb))
+                norm_q = sum(x * x for x in query_emb) ** 0.5
+                norm_c = sum(x * x for x in chunk_emb) ** 0.5
+                sim = dot / (norm_q * norm_c) if (norm_q and norm_c) else 0.0
+                scores.append((sim, chunks[i]))
+            
+            scores.sort(key=lambda x: x[0], reverse=True)
+            for _, c in scores[:top_k]:
+                retrieved_chunks.add(c)
+        return list(retrieved_chunks)
+        
+    except Exception as e:
+        print(f"Embedding-based RAG failed or rate limited ({e}). Falling back to local keyword-based RAG...")
+        retrieved_chunks = set()
+        for query in queries:
+            terms = [t.lower() for t in query.replace(",", " ").replace(":", " ").split() if len(t) > 2]
+            scores = []
+            for chunk in chunks:
+                chunk_lower = chunk.lower()
+                score = sum(chunk_lower.count(term) for term in terms)
+                scores.append((score, chunk))
+            scores.sort(key=lambda x: x[0], reverse=True)
+            for _, c in scores[:top_k]:
+                retrieved_chunks.add(c)
+        return list(retrieved_chunks)
+
+
+# ── POST: Extract Supplier data from an uploaded file ──────────────
+@router.post("/extract-document", response_model=dict)
+async def extract_supplier_document(
+    file: UploadFile = File(...),
+    x_user_api_key: Optional[str] = Header(None, alias="X-User-API-Key"),
+    x_user_model: Optional[str] = Header(None, alias="X-User-Model")
+):
+    """
+    Accept an uploaded document (PDF, CSV, Excel), extract supplier name,
+    location, and product rows using LLM, and return structured data.
+    """
+    allowed_extensions = {".pdf", ".csv", ".xlsx", ".xls"}
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file format '{ext}'. Supported formats: PDF, CSV, Excel (.xlsx, .xls)"
+        )
+
+    contents = await file.read()
+    
+    # 1. Extract raw text based on format
+    full_text = ""
+    try:
+        if ext == ".pdf":
+            import io
+            import pypdf
+            pdf_file = io.BytesIO(contents)
+            reader = pypdf.PdfReader(pdf_file)
+            full_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+            
+        elif ext in (".xlsx", ".xls"):
+            import io
+            import openpyxl
+            excel_file = io.BytesIO(contents)
+            wb = openpyxl.load_workbook(excel_file, data_only=True)
+            sheet = wb.active
+            rows_text = []
+            for row in sheet.iter_rows(values_only=True):
+                if any(val is not None and str(val).strip() != "" for val in row):  # skip fully empty rows
+                    rows_text.append(", ".join(str(val) if val is not None else "" for val in row))
+            full_text = "\n".join(rows_text)
+            
+        elif ext == ".csv":
+            full_text = contents.decode("utf-8", errors="ignore")
+        else:
+            full_text = contents.decode("utf-8", errors="ignore")
+    except Exception as e:
+        print(f"Text extraction failed: {e}")
+        # If text extraction completely fails, we can check if a local tabular fallback can save us
+        if ext in (".csv", ".xlsx", ".xls"):
+            local_res = extract_tabular_data_locally(contents, ext)
+            if local_res:
+                return {
+                    "success": True,
+                    "data": local_res,
+                    "warning": "Text extraction failed, but recovered data locally using rule-based spreadsheet parser."
+                }
+        raise HTTPException(status_code=400, detail=f"Failed to read file contents: {str(e)}")
+
+    if not full_text.strip():
+        # Try local fallback for spreadsheets
+        if ext in (".csv", ".xlsx", ".xls"):
+            local_res = extract_tabular_data_locally(contents, ext)
+            if local_res:
+                return {
+                    "success": True,
+                    "data": local_res,
+                    "warning": "The file contains no readable text, but recovered data locally using rule-based spreadsheet parser."
+                }
+        raise HTTPException(status_code=400, detail="The uploaded file contains no readable text content.")
+
+    # Apply in-memory RAG pipeline if document is large (e.g. > 3000 chars)
+    if len(full_text) > 3000:
+        queries = [
+            "Supplier profile: supplier name, company name, address, location, city, country",
+            "Product catalog list: items, products, SKU, price, availability, revenue, cost, demographics, lead time"
+        ]
+        rag_chunks = await retrieve_relevant_chunks(
+            full_text, 
+            queries, 
+            api_key=x_user_api_key, 
+            top_k=4
+        )
+        full_text = "\n=== RETRIEVED TEXT SEGMENTS ===\n" + "\n---\n".join(rag_chunks)
+    else:
+        # Limit text size for smaller files
+        if len(full_text) > 20000:
+            full_text = full_text[:20000] + "\n[Text truncated due to size limit...]"
+
+    # 2. Call LLM to extract structured data
+    try:
+        from llm import get_llm
+        from langchain_core.messages import HumanMessage
+        
+        # Use user model if provided, default to gemini-2.5-flash
+        model_name = x_user_model or "google/gemini-2.5-flash"
+        llm = get_llm(temperature=0.2, api_key=x_user_api_key, model=model_name)
+        
+        prompt = f"""You are an expert data extraction assistant. Your job is to extract supplier and product-level data from the raw text of an uploaded document (invoice, catalog, contract, list).
+    
+RAW DOCUMENT TEXT:
+---
+{full_text}
+---
+
+Please parse the text above and extract the following:
+1. The Supplier/Company Name (or guess a reasonable company name from the document headers, default to "Unknown Supplier" if not found).
+2. The Supplier/Company Location (city or country, default to "Unknown" if not found).
+3. A list of all products mentioned in the document. For each product, map its properties to this specific schema:
+   - product_type: type of product (e.g. cosmetics, skincare, electronics, haircare, etc.)
+   - sku: SKU code or product ID (e.g. SKU-123, SKU-001)
+   - price: price per unit (number)
+   - availability: estimated stock availability percentage (0-100, number)
+   - number_sold: quantity of products sold (number)
+   - revenue: total revenue generated from this product (number, if not directly available, calculate as price * number_sold)
+   - customer_demographics: primary customer demographics (e.g. Male, Female, Non-binary, All)
+   - stock_level: current stock quantity (number)
+   - lead_time: supplier replenishment lead time in days (number)
+   - order_quantity: average order quantity (number)
+   - shipping_time: shipping transit time in days (number)
+   - shipping_cost: cost of shipping per unit (number)
+   - shipping_carrier: name of the carrier (e.g. Carrier A, DHL, Fedex)
+   - production_volume: standard production volume (number)
+   - manufacturing_lead_time: production lead time in days (number)
+   - manufacturing_cost: cost to manufacture per unit (number)
+   - defect_rate: defect rate percentage (e.g. 1.5 for 1.5%, number)
+   - transportation_mode: mode of transport (e.g. Road, Rail, Air, Sea)
+   - route: shipping route name (e.g. Route A, Route B)
+   - inspection_result: result of quality check (Pass, Fail, or Pending)
+
+Instructions:
+- Attempt to extract or estimate values for every field based on the text. If a field is not found in the text, use reasonable, realistic default values for that type of product (e.g. default lead_time to 10-15 days, defect_rate to 1.5, availability to 90).
+- Map columns intelligently. E.g. "Unit Cost" -> manufacturing_cost, "Sales" -> number_sold, "Carrier" -> shipping_carrier.
+- Return a JSON object with keys:
+  - name: string
+  - location: string
+  - products: list of objects matching the schema above.
+  
+Output strictly valid JSON, no markdown blocks, no formatting wrapper, just the JSON string itself. If you output markdown blocks like ```json, the code will fail. Just output the JSON.
+"""
+
+        message = HumanMessage(content=prompt)
+        response = await llm.ainvoke([message])
+        content = response.content.strip()
+        
+        # Strip markdown if present
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+            
+        parsed_data = json.loads(content)
+        
+        return {
+            "success": True,
+            "data": {
+                "name": parsed_data.get("name", "Unknown Supplier"),
+                "location": parsed_data.get("location", "Unknown"),
+                "products": parsed_data.get("products", [])
+            }
+        }
+
+    except Exception as e:
+        print(f"LLM extraction failed: {e}")
+        # Try local fallback for spreadsheets
+        if ext in (".csv", ".xlsx", ".xls"):
+            local_res = extract_tabular_data_locally(contents, ext)
+            if local_res:
+                return {
+                    "success": True,
+                    "data": local_res,
+                    "warning": f"AI extraction failed ({str(e)}), but successfully recovered data locally using rule-based spreadsheet parser."
+                }
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process and extract supplier document: {str(e)}"
+        )
 
 
 # ── POST: Add a new supplier from product rows ──────────────────────

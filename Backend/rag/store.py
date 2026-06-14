@@ -11,18 +11,19 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 
-def get_embedding_client() -> OpenAI:
+def get_embedding_client(api_key: str = None) -> OpenAI:
     """Returns OpenAI-compatible client pointing to OpenRouter for embeddings."""
-    api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")
+    if not api_key:
+        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")
     base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY not set in .env")
     return OpenAI(api_key=api_key, base_url=base_url)
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
+def embed_texts(texts: list[str], api_key: str = None) -> list[list[float]]:
     """Embed a list of texts using text-embedding-3-small via OpenRouter."""
-    client = get_embedding_client()
+    client = get_embedding_client(api_key=api_key)
     model = os.getenv("OPENROUTER_EMBED_MODEL", "openai/text-embedding-3-small")
     response = client.embeddings.create(
         model=model,
@@ -32,9 +33,9 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     return [item.embedding for item in response.data]
 
 
-def embed_query(text: str) -> list[float]:
+def embed_query(text: str, api_key: str = None) -> list[float]:
     """Embed a single query string."""
-    return embed_texts([text])[0]
+    return embed_texts([text], api_key=api_key)[0]
 
 
 def ingest_suppliers():

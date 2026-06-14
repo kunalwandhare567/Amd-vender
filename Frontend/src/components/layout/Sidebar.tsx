@@ -197,7 +197,7 @@ export function Sidebar() {
         {filteredItems.map((item) => {
           const isActive = item.path.includes('?')
             ? (location.pathname + location.search) === item.path
-            : (location.pathname === item.path || (item.path !== '/dashboard' && location.pathname.startsWith(item.path)));
+            : (location.pathname === item.path || (item.path !== '/dashboard' && (location.pathname + '/').startsWith(item.path + '/')));
           return (
             <Link
               key={item.path}

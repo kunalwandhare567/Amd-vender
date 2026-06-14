@@ -39,9 +39,39 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
         }
       };
 
-      fetchReport();
+      const timer = setTimeout(() => {
+        fetchReport();
+      }, 300);
+      return () => clearTimeout(timer);
     }
   }, [isOpen, supplier]);
+
+  const handleExport = () => {
+    if (!report || !supplier) return;
+    const reportText = `AI PERFORMANCE REPORT - ${supplier.name.toUpperCase()}
+Generated on: ${new Date(report.generated_date).toLocaleString()}
+Supplier ID: ${report.supplier_id}
+
+AI ANALYSIS SUMMARY:
+${report.summary_text}
+
+KEY INSIGHTS:
+${report.key_insights.map((insight, index) => `${index + 1}. ${insight}`).join('\n')}
+
+RISK FLAGS:
+${report.risk_flags.map((flag, index) => `- ${flag}`).join('\n')}
+
+Data Sources: ${report.data_sources_used.join(', ')}
+`;
+
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Supplier_Report_${supplier.name.replace(/\s+/g, '_')}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   if (!isOpen) return null;
 
@@ -54,7 +84,7 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
       aria-labelledby="report-title"
     >
       <div
-        className="card-base w-full max-w-2xl max-h-[90vh] overflow-hidden animate-fade-in"
+        className="card-base w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-fade-in"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -78,7 +108,7 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)] scrollbar-thin">
+        <div className="p-6 overflow-y-auto flex-1 scrollbar-thin">
           {isGenerating ? (
             <div className="flex flex-col items-center justify-center py-12">
               <div className="w-12 h-12 rounded-full border-4 border-muted border-t-primary animate-spin mb-4" />
@@ -126,9 +156,10 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
                 </h4>
                 <ul className="space-y-2">
                   {report.risk_flags.map((flag, index) => (
-                    <li key={index} className="flex items-start gap-2 text-sm text-warning">
-                      <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01" />
+                    <li key={index} className="flex items-start gap-2.5 text-sm text-warning">
+                      <svg className="w-4 h-4 mt-0.5 flex-shrink-0 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" strokeWidth={1.5} />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01" />
                       </svg>
                       {flag}
                     </li>
@@ -155,7 +186,7 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
             <button onClick={onClose} className="btn-secondary">
               Close
             </button>
-            <button className="btn-primary">
+            <button onClick={handleExport} className="btn-primary">
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>

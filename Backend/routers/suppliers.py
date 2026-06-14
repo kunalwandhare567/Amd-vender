@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 from typing import List, Optional
 from pydantic import BaseModel
 from database import get_session
-from models import Supplier
+from models import Supplier, SupplierMessage
 from datetime import datetime
 import json
 import os
@@ -824,3 +824,57 @@ Output ONLY valid JSON, no markdown."""
     session.refresh(supplier)
 
     return {"success": True, "data": supplier}
+
+
+class SendMessageRequest(BaseModel):
+    sender: str = "Admin"
+    sender_email: str
+    recipient_email: str
+    subject: str
+    message: str
+    sent_via: str  # "Portal", "Email", or "Both"
+
+
+@router.post("/{supplier_id}/messages", response_model=dict)
+def send_supplier_message(
+    supplier_id: str,
+    request: SendMessageRequest,
+    session: Session = Depends(get_session)
+):
+    supplier = session.get(Supplier, supplier_id)
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    db_msg = SupplierMessage(
+        supplier_id=supplier_id,
+        sender=request.sender,
+        sender_email=request.sender_email,
+        recipient_email=request.recipient_email,
+        subject=request.subject,
+        message=request.message,
+        sent_via=request.sent_via,
+        created_at=datetime.utcnow()
+    )
+    session.add(db_msg)
+    session.commit()
+    session.refresh(db_msg)
+
+    print(f"[{request.sent_via.upper()}] Sent message from {request.sender_email} to {request.recipient_email} re: '{request.subject}'")
+
+    return {"success": True, "data": db_msg}
+
+
+@router.get("/{supplier_id}/messages", response_model=dict)
+def get_supplier_messages(
+    supplier_id: str,
+    session: Session = Depends(get_session)
+):
+    supplier = session.get(Supplier, supplier_id)
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    query = select(SupplierMessage).where(SupplierMessage.supplier_id == supplier_id).order_by(SupplierMessage.created_at.desc())
+    messages = session.exec(query).all()
+
+    return {"success": True, "data": messages}
+

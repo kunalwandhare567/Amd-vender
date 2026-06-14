@@ -200,3 +200,17 @@ class Incident(SQLModel, table=True):
     lng: Optional[float] = Field(default=None)
     trip_id: Optional[str] = Field(default=None)
 
+
+class SupplierMessage(SQLModel, table=True):
+    __tablename__ = "supplier_messages"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    supplier_id: str = Field(foreign_key="supplier.supplier_id", index=True)
+    sender: str  # "Admin" or "Supplier"
+    sender_email: str
+    recipient_email: str
+    subject: str
+    message: str
+    sent_via: str  # "Portal", "Email", or "Both"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+

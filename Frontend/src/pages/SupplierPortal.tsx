@@ -11,7 +11,7 @@ import { api } from '@/lib/api';
 import {
   Building2, TrendingUp, AlertTriangle, MapPin, Package,
   FileText, Navigation, Loader2, CheckCircle2, XCircle,
-  CloudRain, Newspaper, BarChart3, RefreshCw, Clock, Zap
+  CloudRain, Newspaper, BarChart3, RefreshCw, Clock, Zap, MessageSquare
 } from 'lucide-react';
 
 interface RouteReport {
@@ -77,7 +77,7 @@ const ScoreGauge = ({ value, label, color }: { value: number; label: string; col
 export default function SupplierPortal() {
   const SUPPLIER_ID = 'SUP001'; // In production: get from auth context
 
-  const tabs = ['overview', 'route-intelligence', 'rfqs', 'documents'] as const;
+  const tabs = ['overview', 'route-intelligence', 'rfqs', 'documents', 'messages'] as const;
   type Tab = typeof tabs[number];
   const [activeTab, setActiveTab] = useState<Tab>('overview');
 
@@ -93,6 +93,54 @@ export default function SupplierPortal() {
   // RFQ state
   const [rfqs, setRfqs] = useState<RFQ[]>([]);
   const [loadingRfqs, setLoadingRfqs] = useState(false);
+
+  // Messages state
+  const [messages, setMessages] = useState<any[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [replySubject, setReplySubject] = useState('');
+  const [replyBody, setReplyBody] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+
+  const fetchMessages = async () => {
+    setLoadingMessages(true);
+    try {
+      const res = await api.get(`/suppliers/${SUPPLIER_ID}/messages`);
+      setMessages(res.data.data || []);
+    } catch {
+      setMessages([]);
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
+
+  const handleSendReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!replySubject.trim() || !replyBody.trim()) {
+      toast.error('Please fill in both subject and message.');
+      return;
+    }
+    setSendingReply(true);
+    try {
+      const res = await api.post(`/suppliers/${SUPPLIER_ID}/messages`, {
+        sender: 'Supplier',
+        sender_email: 'supplier@example.com',
+        recipient_email: 'admin@vendorverse.com',
+        subject: replySubject.trim(),
+        message: replyBody.trim(),
+        sent_via: 'Portal',
+      });
+      if (res.data.success) {
+        toast.success('Reply sent successfully!');
+        setReplyBody('');
+        setReplySubject('');
+        fetchMessages();
+      }
+    } catch (err: any) {
+      toast.error('Failed to send reply');
+    } finally {
+      setSendingReply(false);
+    }
+  };
 
   const fetchRouteReports = async () => {
     setLoadingReports(true);
@@ -121,6 +169,7 @@ export default function SupplierPortal() {
   useEffect(() => {
     fetchRouteReports();
     fetchRfqs();
+    fetchMessages();
   }, []);
 
   const handleAnalyzeRoute = async (e: React.FormEvent) => {
@@ -152,6 +201,7 @@ export default function SupplierPortal() {
     'route-intelligence': { label: 'Route Intelligence', icon: <Navigation className="h-4 w-4" /> },
     'rfqs': { label: 'My RFQs', icon: <FileText className="h-4 w-4" /> },
     'documents': { label: 'Documents', icon: <Package className="h-4 w-4" /> },
+    'messages': { label: 'Messages', icon: <MessageSquare className="h-4 w-4" /> },
   };
 
   return (
@@ -593,6 +643,104 @@ export default function SupplierPortal() {
                   <Button className="mt-4" variant="outline">
                     Upload Document (Coming Sprint 4b)
                   </Button>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* ─── Messages Tab ───────────────────────────────── */}
+          {activeTab === 'messages' && (
+            <motion.div key="messages" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+              {/* Send Message Form */}
+              <Card className="card-base lg:col-span-2">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="text-base font-bold flex items-center gap-2">
+                    <Zap className="h-5 w-5 text-primary" /> Send Message to Admin
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <form onSubmit={handleSendReply} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Recipient</Label>
+                      <Input disabled value="Admin (admin@vendorverse.com)" className="bg-secondary/30 opacity-70" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Subject</Label>
+                      <Input
+                        placeholder="e.g. Re: Quality SLA warning"
+                        value={replySubject}
+                        onChange={e => setReplySubject(e.target.value)}
+                        className="bg-secondary/40"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Message Content</Label>
+                      <textarea
+                        placeholder="Type your message here..."
+                        value={replyBody}
+                        onChange={e => setReplyBody(e.target.value)}
+                        className="w-full min-h-[150px] input-base resize-none"
+                        required
+                      />
+                    </div>
+                    <Button type="submit" disabled={sendingReply} className="w-full bg-primary hover:bg-primary/90 font-bold">
+                      {sendingReply ? (
+                        <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending...</>
+                      ) : (
+                        <><MessageSquare className="h-4 w-4 mr-2" />Send Message</>
+                      )}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              {/* Conversation History */}
+              <Card className="card-base lg:col-span-3">
+                <CardHeader className="border-b border-border flex flex-row items-center justify-between">
+                  <CardTitle className="text-base font-bold flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-primary" /> Conversation Thread
+                  </CardTitle>
+                  <button onClick={fetchMessages} className="text-primary hover:text-primary/80">
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </button>
+                </CardHeader>
+                <CardContent className="p-4 space-y-4 max-h-[500px] overflow-y-auto scrollbar-thin">
+                  {loadingMessages ? (
+                    <div className="flex justify-center items-center py-12">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : messages.length === 0 ? (
+                    <div className="py-12 text-center text-muted-foreground flex flex-col items-center justify-center">
+                      <MessageSquare className="h-10 w-10 opacity-20 mb-3" />
+                      <p className="font-semibold text-sm">No Messages Yet</p>
+                      <p className="text-xs mt-1">Direct communications from Admin will appear here.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {messages.map((msg, index) => {
+                        const isSupplier = msg.sender === 'Supplier';
+                        return (
+                          <div key={index} className={`flex flex-col ${isSupplier ? 'items-end' : 'items-start'}`}>
+                            <div
+                              className={`max-w-[85%] rounded-xl p-3.5 border text-xs leading-relaxed ${
+                                isSupplier
+                                  ? 'bg-primary/10 border-primary/20 text-foreground'
+                                  : 'bg-muted/40 border-border text-foreground'
+                              }`}
+                            >
+                              <div className="flex justify-between items-center gap-6 mb-1.5 border-b border-border/10 pb-1 text-[9px] font-bold text-muted-foreground">
+                                <span>{msg.sender} via {msg.sent_via}</span>
+                                <span>{new Date(msg.created_at).toLocaleString()}</span>
+                              </div>
+                              <p className="font-semibold text-[10px] text-foreground mb-1">Re: {msg.subject}</p>
+                              <p className="whitespace-pre-wrap">{msg.message}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>

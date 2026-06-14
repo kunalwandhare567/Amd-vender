@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/common/StatusBadge';
 import { MetricCard } from '@/components/common/MetricCard';
 import { SimpleBarChart, SimpleLineChart, DonutChart } from '@/components/common/SimpleChart';
 import { ReportModal } from '@/components/modals/ReportModal';
+import { ContactModal } from '@/components/modals/ContactModal';
 import { supplierService } from '@/services/supplierService';
 import { api } from '@/lib/api';
 import { purchaseOrders, qualityReports, deliveryLogs } from '@/data/mockData';
@@ -16,6 +17,7 @@ const SupplierDetail = () => {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState('overview');
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showContactModal, setShowContactModal] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['supplier', id],
@@ -140,7 +142,7 @@ const SupplierDetail = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            <button className="btn-secondary">
+            <button onClick={() => setShowContactModal(true)} className="btn-secondary">
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
@@ -449,6 +451,12 @@ const SupplierDetail = () => {
         supplier={supplier}
         isOpen={showReportModal}
         onClose={() => setShowReportModal(false)}
+      />
+
+      <ContactModal
+        supplier={supplier}
+        isOpen={showContactModal}
+        onClose={() => setShowContactModal(false)}
       />
     </MainLayout>
   );

@@ -9,6 +9,7 @@ import shutil
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
+from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
 from database import get_session
@@ -228,3 +229,18 @@ def delete_document(
     session.commit()
 
     return {"success": True, "message": f"Document {document_id} deleted."}
+
+
+@router.get("/{document_id}/download")
+def download_document(document_id: str, session: Session = Depends(get_session)):
+    """Download an uploaded supplier document from disk."""
+    doc = session.get(SupplierDocument, document_id)
+    if not doc or not doc.file_path or not os.path.exists(doc.file_path):
+        raise HTTPException(status_code=404, detail="Document file not found on disk")
+        
+    return FileResponse(
+        path=doc.file_path,
+        filename=doc.filename,
+        media_type=doc.file_type or "application/octet-stream",
+        content_disposition_type="inline"
+    )

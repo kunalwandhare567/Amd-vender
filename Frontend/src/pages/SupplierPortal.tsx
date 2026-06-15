@@ -12,7 +12,7 @@ import {
   Building2, TrendingUp, AlertTriangle, MapPin, Package,
   FileText, Navigation, Loader2, CheckCircle2, XCircle,
   CloudRain, Newspaper, BarChart3, RefreshCw, Clock, Zap, MessageSquare,
-  Sparkles
+  Sparkles, Truck, Plus, Upload
 } from 'lucide-react';
 
 interface RouteReport {
@@ -78,9 +78,32 @@ const ScoreGauge = ({ value, label, color }: { value: number; label: string; col
 export default function SupplierPortal() {
   const SUPPLIER_ID = 'SUP001'; // In production: get from auth context
 
-  const tabs = ['overview', 'route-intelligence', 'rfqs', 'documents', 'messages'] as const;
+  const tabs = ['overview', 'route-intelligence', 'rfqs', 'shipments', 'documents', 'messages'] as const;
   type Tab = typeof tabs[number];
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+
+  // Shipments state
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [loadingShipments, setLoadingShipments] = useState(false);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [registeringShipment, setRegisteringShipment] = useState(false);
+
+  // Shipment Form state
+  const [sourceName, setSourceName] = useState('');
+  const [sourceEmail, setSourceEmail] = useState('');
+  const [sourceContact, setSourceContact] = useState('');
+  const [sourceAddress, setSourceAddress] = useState('');
+  const [destName, setDestName] = useState('');
+  const [destEmail, setDestEmail] = useState('');
+  const [destContact, setDestContact] = useState('');
+  const [destAddress, setDestAddress] = useState('');
+  const [shipDate, setShipDate] = useState('');
+  const [expectedLeadTime, setExpectedLeadTime] = useState<number>(0);
+  const [prodName, setProdName] = useState('');
+  const [sku, setSku] = useState('');
+  const [supplierQty, setSupplierQty] = useState<number>(0);
+  const [supplierCost, setSupplierCost] = useState<number>(0);
+  const [selectedReceiptFile, setSelectedReceiptFile] = useState<File | null>(null);
 
   // Route Intelligence state
   const [source, setSource] = useState('');
@@ -193,10 +216,95 @@ export default function SupplierPortal() {
     }
   };
 
+  const fetchShipments = async () => {
+    setLoadingShipments(true);
+    try {
+      const res = await api.get(`/shipments/supplier/${SUPPLIER_ID}`);
+      setShipments(res.data.shipments || []);
+    } catch {
+      setShipments([]);
+    } finally {
+      setLoadingShipments(false);
+    }
+  };
+
+  const handleRegisterShipment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedReceiptFile) {
+      toast.error('Please upload the dispatch invoice/receipt file.');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('supplier_id', SUPPLIER_ID);
+    formData.append('source_name', sourceName);
+    formData.append('source_email', sourceEmail);
+    formData.append('source_contact', sourceContact);
+    formData.append('source_address', sourceAddress);
+    formData.append('destination_name', destName);
+    formData.append('destination_email', destEmail);
+    formData.append('destination_contact', destContact);
+    formData.append('destination_address', destAddress);
+    formData.append('shipment_date', shipDate);
+    formData.append('expected_lead_time', expectedLeadTime.toString());
+    formData.append('product_name', prodName);
+    formData.append('sku', sku);
+    formData.append('supplier_quantity', supplierQty.toString());
+    formData.append('supplier_cost', supplierCost.toString());
+    formData.append('file', selectedReceiptFile);
+
+    setRegisteringShipment(true);
+    try {
+      const res = await api.post('/shipments/upload-receipt', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (res.data.success) {
+        toast.success('Shipment registered successfully!');
+        setShowRegisterModal(false);
+        // Reset form
+        setSourceName('');
+        setSourceEmail('');
+        setSourceContact('');
+        setSourceAddress('');
+        setDestName('');
+        setDestEmail('');
+        setDestContact('');
+        setDestAddress('');
+        setShipDate('');
+        setExpectedLeadTime(0);
+        setProdName('');
+        setSku('');
+        setSupplierQty(0);
+        setSupplierCost(0);
+        setSelectedReceiptFile(null);
+        fetchShipments();
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Failed to register shipment.');
+    } finally {
+      setRegisteringShipment(false);
+    }
+  };
+
+const handleDownloadReceipt = (receiptId: string) => {
+  if (!receiptId) {
+    toast.error('No receipt document linked to this shipment.');
+    return;
+  }
+  let baseUrl = api.defaults.baseURL || '';
+  if (!baseUrl.startsWith('http')) {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const backendHost = isLocalhost ? 'http://localhost:8000' : window.location.origin;
+    baseUrl = `${backendHost}${baseUrl}`;
+  }
+  const url = `${baseUrl}/documents/${receiptId}/download`;
+  window.open(url, '_blank');
+};
+
   useEffect(() => {
     fetchRouteReports();
     fetchRfqs();
     fetchMessages();
+    fetchShipments();
   }, []);
 
   const handleAnalyzeRoute = async (e: React.FormEvent) => {
@@ -227,6 +335,7 @@ export default function SupplierPortal() {
     'overview': { label: 'Overview', icon: <Building2 className="h-4 w-4" /> },
     'route-intelligence': { label: 'Route Intelligence', icon: <Navigation className="h-4 w-4" /> },
     'rfqs': { label: 'My RFQs', icon: <FileText className="h-4 w-4" /> },
+    'shipments': { label: 'Shipments', icon: <Truck className="h-4 w-4" /> },
     'documents': { label: 'Documents', icon: <Package className="h-4 w-4" /> },
     'messages': { label: 'Messages', icon: <MessageSquare className="h-4 w-4" /> },
   };
@@ -659,6 +768,94 @@ export default function SupplierPortal() {
             </motion.div>
           )}
 
+          {/* ─── Shipments Tab ──────────────────────────────── */}
+          {activeTab === 'shipments' && (
+            <motion.div key="shipments" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold text-foreground">Registered Dispatches</h2>
+                <Button onClick={() => setShowRegisterModal(true)} className="bg-primary hover:bg-primary/90 gap-1.5 font-bold">
+                  <Plus className="h-4 w-4" /> Register Shipment
+                </Button>
+              </div>
+
+              <Card className="card-base">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="text-base font-bold flex items-center gap-2">
+                    <Truck className="h-5 w-5 text-primary" /> Delivery & Dispatch Registry ({shipments.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {loadingShipments ? (
+                    <div className="flex justify-center items-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+                  ) : shipments.length === 0 ? (
+                    <div className="py-12 text-center text-muted-foreground">
+                      <Truck className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                      <p>No shipments registered yet. Click "Register Shipment" to create one.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-border bg-secondary/20 text-xs text-muted-foreground font-semibold">
+                            <th className="p-4">SKU / Product</th>
+                            <th className="p-4">Dispatch Date</th>
+                            <th className="p-4">Recipient</th>
+                            <th className="p-4">Claimed Qty & Cost</th>
+                            <th className="p-4">Lead Time</th>
+                            <th className="p-4">Status</th>
+                            <th className="p-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border text-sm">
+                          {shipments.map((ship) => (
+                            <tr key={ship.id} className="hover:bg-secondary/10 transition-colors">
+                              <td className="p-4">
+                                <p className="font-semibold text-foreground">{ship.product_name}</p>
+                                <span className="text-xs text-muted-foreground font-mono">{ship.sku}</span>
+                              </td>
+                              <td className="p-4">
+                                {new Date(ship.shipment_date).toLocaleDateString()}
+                              </td>
+                              <td className="p-4">
+                                <p className="font-medium text-foreground">{ship.destination_name}</p>
+                                <span className="text-xs text-muted-foreground">{ship.destination_address}</span>
+                              </td>
+                              <td className="p-4">
+                                <p className="text-foreground">{ship.supplier_quantity} units</p>
+                                <span className="text-xs text-muted-foreground">${ship.supplier_cost.toFixed(2)}/unit</span>
+                              </td>
+                              <td className="p-4">
+                                {ship.expected_lead_time} days
+                              </td>
+                              <td className="p-4">
+                                <Badge variant={ship.status === 'Audited' ? 'default' : 'secondary'} className={
+                                  ship.status === 'Audited' 
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                }>
+                                  {ship.status}
+                                </Badge>
+                              </td>
+                              <td className="p-4 text-right">
+                                <button
+                                  onClick={() => handleDownloadReceipt(ship.supplier_receipt_doc_id)}
+                                  className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                                  title="View/Download Invoice Receipt"
+                                >
+                                  <FileText className="w-3.5 h-3.5" /> View Receipt
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
           {/* ─── Documents Tab ──────────────────────────────── */}
           {activeTab === 'documents' && (
             <motion.div key="docs" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
@@ -790,6 +987,138 @@ export default function SupplierPortal() {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Register Shipment Modal */}
+      {showRegisterModal && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <Card className="card-base w-full max-w-2xl my-8">
+            <CardHeader className="border-b border-border flex flex-row items-center justify-between p-5">
+              <div>
+                <CardTitle className="text-lg font-bold text-foreground">Register New Shipment</CardTitle>
+                <p className="text-xs text-muted-foreground">Send dispatch report and receipt invoice to Admin</p>
+              </div>
+              <button onClick={() => setShowRegisterModal(false)} className="text-muted-foreground hover:text-foreground">
+                <XCircle className="h-5 w-5" />
+              </button>
+            </CardHeader>
+            <form onSubmit={handleRegisterShipment}>
+              <CardContent className="p-6 space-y-6 max-h-[70vh] overflow-y-auto scrollbar-thin">
+                
+                {/* Source details */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold text-primary uppercase tracking-wider">Source (Sender Company)</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Sender Company Name</Label>
+                      <Input required placeholder="e.g. SkinCare Corp" value={sourceName} onChange={e => setSourceName(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Sender Email</Label>
+                      <Input type="email" required placeholder="e.g. shipping@skincare.com" value={sourceEmail} onChange={e => setSourceEmail(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Sender Contact Number</Label>
+                      <Input required placeholder="e.g. +91 9876543210" value={sourceContact} onChange={e => setSourceContact(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Sender Address</Label>
+                      <Input required placeholder="e.g. Plot 4, MIDC, Mumbai" value={sourceAddress} onChange={e => setSourceAddress(e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Destination details */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold text-primary uppercase tracking-wider">Destination (Recipient Company)</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Recipient Company Name</Label>
+                      <Input required placeholder="e.g. VendorVerse India" value={destName} onChange={e => setDestName(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Recipient Email</Label>
+                      <Input type="email" required placeholder="e.g. receive@vendorverse.com" value={destEmail} onChange={e => setDestEmail(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Recipient Contact Number</Label>
+                      <Input required placeholder="e.g. +91 8765432109" value={destContact} onChange={e => setDestContact(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Recipient Delivery Address</Label>
+                      <Input required placeholder="e.g. Warehouse 12, Chakan, Pune" value={destAddress} onChange={e => setDestAddress(e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dispatch & Material details */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold text-primary uppercase tracking-wider">Material & Dispatch Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Dispatch Date & Time</Label>
+                      <Input type="datetime-local" required value={shipDate} onChange={e => setShipDate(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Expected Lead Time (Days)</Label>
+                      <Input type="number" step="0.1" required min="0" placeholder="e.g. 5" value={expectedLeadTime || ''} onChange={e => setExpectedLeadTime(parseFloat(e.target.value) || 0)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Product Name</Label>
+                      <Input required placeholder="e.g. Face Moisturizer" value={prodName} onChange={e => setProdName(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">SKU Code</Label>
+                      <Input required placeholder="e.g. SKU-101" value={sku} onChange={e => setSku(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Quantity Dispatched</Label>
+                      <Input type="number" required min="1" placeholder="e.g. 500" value={supplierQty || ''} onChange={e => setSupplierQty(parseInt(e.target.value) || 0)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-muted-foreground">Unit Cost ($)</Label>
+                      <Input type="number" step="0.01" required min="0" placeholder="e.g. 15.50" value={supplierCost || ''} onChange={e => setSupplierCost(parseFloat(e.target.value) || 0)} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Upload Receipt */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-muted-foreground">Upload Invoice / Dispatch Receipt (PDF/Image)</Label>
+                  <div className="border-2 border-dashed border-border hover:border-primary/50 transition-colors rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer bg-secondary/10 relative">
+                    <input
+                      type="file"
+                      accept=".pdf, .png, .jpg, .jpeg, .csv, .xlsx"
+                      onChange={e => setSelectedReceiptFile(e.target.files?.[0] || null)}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      required
+                    />
+                    <Upload className="w-8 h-8 text-muted-foreground mb-2" />
+                    <span className="text-xs font-semibold text-foreground">
+                      {selectedReceiptFile ? selectedReceiptFile.name : 'Click to select receipt file'}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground mt-1">
+                      Accepts PDF, CSV, Excel or Images up to 10MB
+                    </span>
+                  </div>
+                </div>
+
+              </CardContent>
+              <div className="p-5 border-t border-border flex justify-end gap-3 bg-secondary/10">
+                <Button type="button" variant="outline" onClick={() => setShowRegisterModal(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={registeringShipment} className="bg-primary hover:bg-primary/90 font-bold">
+                  {registeringShipment ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Registering...</>
+                  ) : (
+                    'Submit Shipment Report'
+                  )}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
     </MainLayout>
   );
 }

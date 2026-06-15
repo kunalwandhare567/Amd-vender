@@ -3,22 +3,26 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { AlertTriangle, CheckCircle, XCircle, Clock, TrendingDown, TrendingUp, Bell, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle, XCircle, Clock, TrendingDown, TrendingUp, Bell, Loader2, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { api } from '@/lib/api';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 
 interface SLAMetric {
   id: string;
-  supplierId: string;
-  supplierName: string;
-  metric: 'delivery_time' | 'response_time' | 'quality_score' | 'uptime';
+  supplier_id: string;
+  supplier_name: string;
+  metric: 'delivery_time' | 'response_time' | 'quality_score' | 'uptime' | 'lead_time' | 'shipping_time' | 'inspection_rate';
   current: number;
   threshold: number;
   target: number;
   unit: string;
   status: 'compliant' | 'warning' | 'breached';
-  deviationPercent: number;
+  deviation_percent: number;
   trend: 'up' | 'down' | 'stable';
+  proof_document_id?: string;
+  proof_filename?: string;
 }
 
 export default function SLAMonitor() {
@@ -26,6 +30,7 @@ export default function SLAMonitor() {
   const [filter, setFilter] = useState<'all' | 'breached' | 'warning' | 'compliant'>('all');
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const fetchSLAMetrics = async () => {
     try {
@@ -38,6 +43,22 @@ export default function SLAMonitor() {
       console.error('Failed to fetch SLA metrics:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleAIAnalyze = async () => {
+    try {
+      setIsAnalyzing(true);
+      const response = await api.post('/sla/analyze');
+      if (response.data.metrics) {
+        setMetrics(response.data.metrics);
+        toast.success('AI SLA analysis completed and metrics updated successfully!');
+      }
+    } catch (error: any) {
+      console.error('Failed to run SLA analysis:', error);
+      toast.error('Failed to analyze SLAs using AI.');
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -115,7 +136,7 @@ export default function SLAMonitor() {
   };
 
   const calculateProgress = (metric: SLAMetric) => {
-    if (metric.metric === 'delivery_time' || metric.metric === 'response_time') {
+    if (metric.metric === 'delivery_time' || metric.metric === 'response_time' || metric.metric === 'lead_time' || metric.metric === 'shipping_time') {
       // For time metrics, lower is better
       return Math.max(0, Math.min(100, ((metric.threshold - metric.current) / metric.threshold) * 100));
     } else {
@@ -124,17 +145,65 @@ export default function SLAMonitor() {
     }
   };
 
+  const handleDownloadProof = async (docId: string, filename: string) => {
+    try {
+      const response = await api.get(`/documents/${docId}/download`, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch (error) {
+      console.error('Failed to download proof document:', error);
+      alert('Failed to download proof report document.');
+    }
+  };
+
   return (
     <MainLayout>
       <div className="p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-bold text-foreground">SLA Monitoring</h2>
             <p className="text-muted-foreground mt-1">Real-time tracking of supplier service level agreements</p>
           </div>
-          <div className="flex items-center gap-3">
-            <Badge variant="outline" className="text-sm py-2 px-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              onClick={handleAIAnalyze}
+              disabled={isAnalyzing || isLoading}
+              className="gap-2 font-semibold bg-primary hover:bg-primary/95 text-primary-foreground"
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Analyzing SLAs...
+                </>
+              ) : (
+                <>
+                  <TrendingUp className="w-4 h-4" />
+                  AI Analyze SLAs
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={fetchSLAMetrics}
+              disabled={isLoading || isAnalyzing}
+              variant="outline"
+              className="gap-2 font-semibold border border-border text-foreground hover:bg-secondary/40"
+            >
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 text-primary" />
+              )}
+              Refresh
+            </Button>
+            <Badge variant="outline" className="text-sm py-2 px-4 bg-secondary/10">
               <Bell className="w-4 h-4 mr-2" />
               Auto-refresh: {autoRefresh ? 'ON' : 'OFF'}
             </Badge>
@@ -246,7 +315,7 @@ export default function SLAMonitor() {
                     <div className="flex-1">
                       <CardTitle className="text-base font-semibold flex items-center gap-2">
                         {getStatusIcon(metric.status)}
-                        {metric.supplierName}
+                        {metric.supplier_name}
                       </CardTitle>
                       <CardDescription className="mt-1 flex items-center gap-2">
                         <Clock className="w-3 h-3" />
@@ -289,7 +358,7 @@ export default function SLAMonitor() {
                   </div>
 
                   <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-2">
-                    <span>Deviation: {metric.deviationPercent}%</span>
+                    <span>Deviation: {metric.deviation_percent}%</span>
                     <span>Updated: Just now</span>
                   </div>
                 </CardContent>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
@@ -8,18 +8,34 @@ import { MetricCard } from '@/components/common/MetricCard';
 import { SimpleBarChart, SimpleLineChart, DonutChart } from '@/components/common/SimpleChart';
 import { ReportModal } from '@/components/modals/ReportModal';
 import { ContactModal } from '@/components/modals/ContactModal';
+import { UpdateQCModal } from '@/components/modals/UpdateQCModal';
+import { GenerateFeedbackModal } from '@/components/modals/GenerateFeedbackModal';
+import { ComparisonModal } from '@/components/modals/ComparisonModal';
+import { toast } from 'sonner';
 import { supplierService } from '@/services/supplierService';
 import { api } from '@/lib/api';
 import { purchaseOrders, qualityReports, deliveryLogs } from '@/data/mockData';
-import { Navigation, MapPin, AlertTriangle, TrendingUp, CheckCircle2, XCircle, CloudRain, Newspaper } from 'lucide-react';
+import { Navigation, MapPin, AlertTriangle, TrendingUp, CheckCircle2, XCircle, CloudRain, Newspaper, Loader2, Download, Plus, AlertCircle, Sparkles, FileText, Truck, Calendar, RefreshCw } from 'lucide-react';
 
 const SupplierDetail = () => {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState('overview');
   const [showReportModal, setShowReportModal] = useState(false);
   const [showContactModal, setShowContactModal] = useState(false);
+  const [showQCModal, setShowQCModal] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  // Shipments & Ledger states
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [loadingShipments, setLoadingShipments] = useState(false);
+  const [selectedShipment, setSelectedShipment] = useState<any | null>(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showComparisonModal, setShowComparisonModal] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [syncingSla, setSyncingSla] = useState(false);
+
+  const { data, isLoading, refetch: refetchSupplier } = useQuery({
     queryKey: ['supplier', id],
     queryFn: async () => {
       const response = await supplierService.getSupplier(id!);
@@ -31,7 +47,7 @@ const SupplierDetail = () => {
   const supplier = data?.data;
 
   // Fetch AI-generated summary from backend
-  const { data: summaryData, isLoading: isSummaryLoading } = useQuery({
+  const { data: summaryData, isLoading: isSummaryLoading, refetch: refetchSummary } = useQuery({
     queryKey: ['supplier-summary', id],
     queryFn: async () => {
       const response = await api.get(`/suppliers/${id}/summary`);
@@ -42,8 +58,95 @@ const SupplierDetail = () => {
 
   const summary = summaryData?.data || null;
   const supplierPOs = purchaseOrders.filter(po => po.supplier_id === id);
-  const supplierQR = qualityReports.filter(qr => qr.supplier_id === id);
   const supplierDL = deliveryLogs.filter(dl => dl.supplier_id === id);
+
+  const fetchShipments = async () => {
+    setLoadingShipments(true);
+    try {
+      const response = await api.get(`/shipments/supplier/${id}`);
+      setShipments(response.data.shipments || []);
+    } catch (err) {
+      console.error('Failed to fetch shipments:', err);
+    } finally {
+      setLoadingShipments(false);
+    }
+  };
+
+  const handleDownloadReceipt = (receiptId: string) => {
+    if (!receiptId) {
+      toast.error('No receipt document linked to this shipment.');
+      return;
+    }
+    let baseUrl = api.defaults.baseURL || '';
+    if (!baseUrl.startsWith('http')) {
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const backendHost = isLocalhost ? 'http://localhost:8000' : window.location.origin;
+      baseUrl = `${backendHost}${baseUrl}`;
+    }
+    const url = `${baseUrl}/documents/${receiptId}/download`;
+    window.open(url, '_blank');
+  };
+
+  const handleGenerateMonthlyReport = async () => {
+    setGeneratingReport(true);
+    try {
+      const response = await api.post(`/shipments/supplier/${id}/generate-monthly-report`, {
+        month: selectedMonth,
+        year: selectedYear
+      }, {
+        responseType: 'blob'
+      });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Supplier_${id}_Performance_Audit_${selectedYear}_${selectedMonth}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Monthly Comparative Audit Report generated successfully!');
+      
+      // Refresh database records in UI
+      refetchSupplier();
+      refetchSummary();
+      fetchShipments();
+    } catch (error: any) {
+      console.error(error);
+      toast.error('Failed to generate report. Make sure at least one audited shipment exists for this month.');
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
+
+  const handleSyncSla = async () => {
+    setSyncingSla(true);
+    try {
+      const response = await api.post(`/shipments/supplier/${id}/sync-sla`, {
+        month: selectedMonth,
+        year: selectedYear
+      });
+      if (response.data.success) {
+        toast.success(response.data.message);
+        
+        // Refresh database records in UI
+        refetchSupplier();
+        refetchSummary();
+        fetchShipments();
+      }
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.response?.data?.detail || 'Failed to update SLA metrics.');
+    } finally {
+      setSyncingSla(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'shipments' && id) {
+      fetchShipments();
+    }
+  }, [activeTab, id]);
 
 
   if (isLoading) {
@@ -83,7 +186,8 @@ const SupplierDetail = () => {
     { id: 'quality', label: 'Quality' },
     { id: 'delivery', label: 'Delivery' },
     { id: 'contracts', label: 'Contracts' },
-    { id: 'route-intelligence', label: '🛣️ Route Intelligence' },
+    { id: 'route-intelligence', label: ' Route Intelligence' },
+    { id: 'shipments', label: ' Shipment Ledger' },
   ];
 
   // Mock historical data
@@ -341,35 +445,17 @@ const SupplierDetail = () => {
           )}
 
           {activeTab === 'quality' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="card-base p-6">
-                <h3 className="font-semibold text-foreground mb-4">Defect Rate Trend</h3>
-                <SimpleLineChart data={monthlyDefects} color="warning" height={160} />
+            <div className="card-base p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-foreground">Defect Rate Trend</h3>
+                <button
+                  onClick={() => setShowQCModal(true)}
+                  className="text-xs font-semibold bg-primary/10 text-primary px-3 py-1.5 rounded-lg border border-primary/20 hover:bg-primary/20 transition-all flex items-center gap-1.5"
+                >
+                  📊 Update QC Logs
+                </button>
               </div>
-
-              <div className="card-base p-6">
-                <h3 className="font-semibold text-foreground mb-4">Recent Quality Reports</h3>
-                {supplierQR.length > 0 ? (
-                  <div className="space-y-3">
-                    {supplierQR.map(qr => (
-                      <div key={qr.report_id} className="p-3 rounded-lg bg-muted">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-medium text-foreground">{qr.report_id}</span>
-                          <StatusBadge status={qr.severity} />
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {qr.defect_count} defects in {qr.total_inspected_quantity} items ({((qr.defect_count / qr.total_inspected_quantity) * 100).toFixed(1)}%)
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {qr.defect_type} • {new Date(qr.inspection_date).toLocaleDateString()}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-muted-foreground text-center py-8">No quality reports available</p>
-                )}
-              </div>
+              <SimpleLineChart data={monthlyDefects} color="warning" height={240} />
             </div>
           )}
 
@@ -444,6 +530,165 @@ const SupplierDetail = () => {
           {activeTab === 'route-intelligence' && (
             <RouteIntelligenceTab supplierId={supplier.supplier_id} />
           )}
+
+          {activeTab === 'shipments' && (
+            <div className="space-y-6">
+              {/* Monthly Report Generator Card */}
+              <div className="card-base p-6 border border-primary/20 bg-primary/5">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div>
+                    <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-primary" /> Monthly Audit Reports
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Compile all dispatches and company inspections for a month, aggregate averages to update the SLA Monitor, and generate a certified RAG audit PDF report.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedMonth}
+                        onChange={e => setSelectedMonth(parseInt(e.target.value))}
+                        className="border border-border rounded-lg px-2.5 py-1.5 text-xs bg-background text-foreground"
+                      >
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                          <option key={m} value={m}>
+                            {new Date(2000, m - 1).toLocaleString('default', { month: 'long' })}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={selectedYear}
+                        onChange={e => setSelectedYear(parseInt(e.target.value))}
+                        className="border border-border rounded-lg px-2.5 py-1.5 text-xs bg-background text-foreground"
+                      >
+                        {[2024, 2025, 2026, 2027].map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleSyncSla}
+                        disabled={syncingSla || shipments.length === 0}
+                        className="btn-secondary py-1.5 text-xs font-bold flex items-center gap-1.5 border border-border bg-background hover:bg-secondary/40 text-foreground"
+                      >
+                        {syncingSla ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-3.5 h-3.5 text-primary" />
+                        )}
+                        SLA Update
+                      </button>
+                      <button
+                        onClick={handleGenerateMonthlyReport}
+                        disabled={generatingReport || shipments.length === 0}
+                        className="btn-primary py-1.5 text-xs font-bold flex items-center gap-1.5"
+                      >
+                        {generatingReport ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
+                        Generate Report
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Delivery Ledger Table Card */}
+              <div className="card-base p-0 overflow-hidden">
+                <div className="p-4 border-b border-border flex justify-between items-center bg-secondary/10">
+                  <h3 className="font-semibold text-foreground flex items-center gap-2 text-sm">
+                    <Truck className="h-4 w-4 text-primary" /> Delivery Material Ledger History
+                  </h3>
+                  <button onClick={fetchShipments} disabled={loadingShipments} className="text-xs text-primary hover:underline">
+                    Refresh
+                  </button>
+                </div>
+
+                {loadingShipments ? (
+                  <div className="flex justify-center items-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+                ) : shipments.length === 0 ? (
+                  <div className="py-12 text-center text-muted-foreground">
+                    <Truck className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                    <p className="font-medium text-foreground">No Deliveries Registered Yet</p>
+                    <p className="text-xs mt-1">When the supplier dispatches materials and uploads their invoice receipt, they will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-border bg-secondary/20 text-xs text-muted-foreground font-semibold">
+                          <th className="p-4">Product / SKU</th>
+                          <th className="p-4">Dispatch Date</th>
+                          <th className="p-4">Delivery Address</th>
+                          <th className="p-4">Supplier Claim (Qty/Cost)</th>
+                          <th className="p-4">Audit Status</th>
+                          <th className="p-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border text-xs">
+                        {shipments.map((ship) => (
+                          <tr key={ship.id} className="hover:bg-secondary/10 transition-colors">
+                            <td className="p-4">
+                              <p className="font-bold text-foreground">{ship.product_name}</p>
+                              <span className="font-mono text-muted-foreground text-[10px]">{ship.sku}</span>
+                            </td>
+                            <td className="p-4">
+                              {new Date(ship.shipment_date).toLocaleDateString()}
+                            </td>
+                            <td className="p-4">
+                              <p className="font-medium text-foreground">{ship.destination_name}</p>
+                              <span className="text-[10px] text-muted-foreground truncate max-w-[200px] block">{ship.destination_address}</span>
+                            </td>
+                            <td className="p-4">
+                              <p className="text-foreground">{ship.supplier_quantity} units</p>
+                              <span className="text-[10px] text-muted-foreground">${ship.supplier_cost.toFixed(2)}/unit</span>
+                            </td>
+                            <td className="p-4">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] border ${
+                                ship.status === 'Audited' 
+                                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
+                                  : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                              }`}>
+                                {ship.status}
+                              </span>
+                            </td>
+                            <td className="p-4 text-right space-x-2">
+                              <button
+                                onClick={() => handleDownloadReceipt(ship.supplier_receipt_doc_id)}
+                                className="text-xs text-primary hover:underline inline-flex items-center gap-0.5"
+                                title="View/Download Invoice Receipt"
+                              >
+                                <FileText className="w-3.5 h-3.5" /> View Receipt
+                              </button>
+                              {ship.status === 'Pending Audit' ? (
+                                <button
+                                  onClick={() => { setSelectedShipment(ship); setShowFeedbackModal(true); }}
+                                  className="px-2.5 py-1 bg-primary text-primary-foreground hover:bg-primary/95 text-[10px] font-bold rounded"
+                                >
+                                  Generate Feedback
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => { setSelectedShipment(ship); setShowComparisonModal(true); }}
+                                  className="px-2.5 py-1 border border-primary/40 text-primary hover:bg-primary/5 text-[10px] font-bold rounded"
+                                >
+                                  Compare Metrics
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -457,6 +702,29 @@ const SupplierDetail = () => {
         supplier={supplier}
         isOpen={showContactModal}
         onClose={() => setShowContactModal(false)}
+      />
+
+      <UpdateQCModal
+        supplierId={supplier.supplier_id}
+        supplierName={supplier.name}
+        isOpen={showQCModal}
+        onClose={() => setShowQCModal(false)}
+        onSuccess={() => {
+          refetchSupplier();
+          refetchSummary();
+        }}
+      />
+      <GenerateFeedbackModal
+        shipment={selectedShipment}
+        isOpen={showFeedbackModal}
+        onClose={() => { setShowFeedbackModal(false); setSelectedShipment(null); }}
+        onSuccess={fetchShipments}
+      />
+
+      <ComparisonModal
+        shipment={selectedShipment}
+        isOpen={showComparisonModal}
+        onClose={() => { setShowComparisonModal(false); setSelectedShipment(null); }}
       />
     </MainLayout>
   );

@@ -72,6 +72,8 @@ class SLAMetric(SQLModel, table=True):
     status: str  # compliant, warning, breached
     deviation_percent: float
     trend: str  # up, down, stable
+    proof_document_id: Optional[str] = Field(default=None)
+    proof_filename: Optional[str] = Field(default=None)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Intervention(SQLModel, table=True):
@@ -213,5 +215,48 @@ class SupplierMessage(SQLModel, table=True):
     message: str
     sent_via: str  # "Portal", "Email", or "Both"
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SupplierShipment(SQLModel, table=True):
+    __tablename__ = "supplier_shipment"
+    id: str = Field(primary_key=True)
+    supplier_id: str = Field(foreign_key="supplier.supplier_id", index=True)
+    
+    # Source Information
+    source_name: str
+    source_email: str
+    source_contact: str
+    source_address: str
+    
+    # Destination Information
+    destination_name: str
+    destination_email: str
+    destination_contact: str
+    destination_address: str
+    
+    # Dispatch Details
+    shipment_date: datetime # date and time of dispatch
+    expected_lead_time: float # in days
+    status: str = Field(default="Pending Audit") # "Pending Audit", "Audited"
+    
+    # Material Details (Supplier Claims)
+    product_name: str
+    sku: str
+    supplier_quantity: int
+    supplier_cost: float
+    supplier_receipt_doc_id: Optional[str] = None # links to SupplierDocument
+    
+    # Company Quality Feedback (Admin Inputs)
+    company_quantity: Optional[int] = None
+    company_cost: Optional[float] = None
+    company_defect_rate: Optional[float] = None # defect rate percentage
+    company_lead_time: Optional[float] = None # actual lead time in days
+    company_shipping_time: Optional[float] = None # actual shipping time in days
+    company_inspection_result: Optional[str] = None # "Pass", "Fail"
+    company_feedback_doc_id: Optional[str] = None # links to SupplierDocument
+    audited_at: Optional[datetime] = None
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 
 

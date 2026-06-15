@@ -15,34 +15,77 @@ interface AiReport {
   key_insights: string[];
   risk_flags: string[];
   data_sources_used: string[];
+  supplier?: {
+    name: string;
+    location: string;
+    region?: string | null;
+    phone?: string | null;
+    product_types: string;
+    overall_score?: number | null;
+    risk_level?: string | null;
+    otd_percentage?: number | null;
+    defect_rate: number;
+    inspection_pass_rate: number;
+    avg_lead_time: number;
+    avg_shipping_time: number;
+    avg_shipping_cost: number;
+    avg_manufacturing_cost: number;
+    total_revenue: number;
+    total_products_sold: number;
+    total_production_volume: number;
+    shipping_carriers: string;
+    transportation_modes: string;
+    routes: string;
+  };
+  metrics?: Array<{
+    metric: string;
+    current: number;
+    target: number;
+    threshold: number;
+    unit: string;
+    status: string;
+    deviation_percent: number;
+    proof_filename?: string | null;
+  }>;
 }
 
 export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [report, setReport] = useState<AiReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchReport = async () => {
+    if (!supplier) return;
+    try {
+      setIsGenerating(true);
+      setError(null);
+      setReport(null);
+      const response = await api.post(`/suppliers/${supplier.supplier_id}/report`);
+      if (response.data.success) {
+        setReport(response.data.data);
+      }
+    } catch (err: any) {
+      console.error('Failed to generate report:', err);
+      setError(
+        err.response?.data?.detail ||
+        err.message ||
+        'Failed to connect to the backend server. Make sure it is running on http://localhost:8000'
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen && supplier) {
-      setIsGenerating(true);
-      setReport(null);
-
-      const fetchReport = async () => {
-        try {
-          const response = await api.post(`/suppliers/${supplier.supplier_id}/report`);
-          if (response.data.success) {
-            setReport(response.data.data);
-          }
-        } catch (error) {
-          console.error('Failed to generate report:', error);
-        } finally {
-          setIsGenerating(false);
-        }
-      };
-
       const timer = setTimeout(() => {
         fetchReport();
       }, 300);
       return () => clearTimeout(timer);
+    } else {
+      setError(null);
+      setReport(null);
+      setIsGenerating(false);
     }
   }, [isOpen, supplier]);
 
@@ -55,6 +98,29 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
       return;
     }
 
+    const formatList = (val: any) => {
+      if (!val) return 'N/A';
+      if (Array.isArray(val)) return val.join(', ');
+      if (typeof val === 'string') {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) return parsed.join(', ');
+        } catch {}
+        return val;
+      }
+      return String(val);
+    };
+
+    const getVal = (key: keyof NonNullable<AiReport['supplier']>, fallback: any) => {
+      if (report.supplier && report.supplier[key] !== undefined && report.supplier[key] !== null) {
+        return report.supplier[key];
+      }
+      if (supplier && (supplier as any)[key] !== undefined && (supplier as any)[key] !== null) {
+        return (supplier as any)[key];
+      }
+      return fallback;
+    };
+
     const insightsHtml = report.key_insights
       .map(insight => `<li class="list-item">${insight}</li>`)
       .join('');
@@ -65,11 +131,40 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
 
     const sourcesHtml = report.data_sources_used.join(', ');
 
+    const metricsHtml = report.metrics && report.metrics.length > 0
+      ? report.metrics.map(m => {
+          let statusStyle = '';
+          if (m.status === 'compliant') {
+            statusStyle = 'background: #d1fae5; color: #065f46; font-weight: 600;';
+          } else if (m.status === 'warning') {
+            statusStyle = 'background: #fef3c7; color: #92400e; font-weight: 600;';
+          } else {
+            statusStyle = 'background: #fee2e2; color: #991b1b; font-weight: 600;';
+          }
+          
+          const label = m.metric.replace('_', ' ').toUpperCase();
+          const devText = m.deviation_percent > 0 ? `+${m.deviation_percent}%` : `${m.deviation_percent}%`;
+          const proof = m.proof_filename ? `📄 ${m.proof_filename}` : 'None uploaded';
+          
+          return `
+            <tr>
+              <td><strong>${label}</strong></td>
+              <td>${m.current} ${m.unit}</td>
+              <td>${m.target} ${m.unit}</td>
+              <td>${m.threshold} ${m.unit}</td>
+              <td><span class="status-badge" style="${statusStyle}">${m.status.toUpperCase()}</span></td>
+              <td style="${m.status === 'breached' ? 'color: #ef4444; font-weight: bold;' : 'color: #334155;'}">${devText}</td>
+              <td style="font-size: 11px; color: #64748b;">${proof}</td>
+            </tr>
+          `;
+        }).join('')
+      : `<tr><td colspan="7" style="text-align: center; color: #64748b; padding: 20px;">No SLA metrics configured for this supplier.</td></tr>`;
+
     const htmlContent = `
 <!DOCTYPE html>
 <html>
 <head>
-  <title>AI Performance Report - ${supplier.name}</title>
+  <title>SLA Performance Audit Report - ${getVal('name', 'Supplier')}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
     
@@ -78,8 +173,9 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
       color: #334155;
       background-color: #ffffff;
       margin: 0;
-      padding: 50px;
-      line-height: 1.6;
+      padding: 40px;
+      line-height: 1.5;
+      font-size: 13px;
     }
     
     h1, h2, h3, h4 {
@@ -92,108 +188,169 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 2px solid #f1f5f9;
-      padding-bottom: 15px;
-      margin-bottom: 30px;
+      border-bottom: 2px solid #0d9488;
+      padding-bottom: 12px;
+      margin-bottom: 20px;
     }
     
     .brand-logo {
       display: flex;
       align-items: center;
       gap: 10px;
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 700;
       color: #0d9488;
     }
     
     .doc-type {
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      color: #64748b;
-      background: #f1f5f9;
+      color: #0d9488;
+      background: rgba(13, 148, 136, 0.1);
       padding: 4px 12px;
       border-radius: 9999px;
     }
     
     .report-title-container {
-      margin-bottom: 25px;
+      margin-bottom: 20px;
     }
     
     .report-title {
-      font-size: 28px;
+      font-size: 24px;
       font-weight: 700;
       color: #0f172a;
-      margin-bottom: 5px;
-    }
-    
-    .report-subtitle {
-      font-size: 14px;
-      color: #64748b;
-    }
-    
-    .meta-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 15px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 15px 20px;
-      margin-bottom: 30px;
-    }
-    
-    .meta-item {
-      display: flex;
-      flex-direction: column;
-    }
-    
-    .meta-label {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #64748b;
       margin-bottom: 4px;
     }
     
-    .meta-value {
-      font-size: 14px;
-      font-weight: 600;
+    .report-subtitle {
+      font-size: 13px;
+      color: #64748b;
+    }
+    
+    .grid-three-col {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .info-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px 15px;
+    }
+    
+    .info-card-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #0d9488;
+      margin-bottom: 8px;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 4px;
+    }
+    
+    .grid-item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    
+    .grid-item-label {
+      color: #64748b;
+      font-weight: 500;
+    }
+    
+    .grid-item-value {
       color: #0f172a;
+      font-weight: 600;
+      text-align: right;
+      max-width: 65%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .overall-score-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 13px;
     }
     
     .section {
-      margin-bottom: 35px;
+      margin-bottom: 25px;
     }
     
     .section-title {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 700;
       color: #0f172a;
       border-bottom: 1px solid #e2e8f0;
-      padding-bottom: 8px;
-      margin-bottom: 15px;
+      padding-bottom: 6px;
+      margin-bottom: 12px;
       text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .sla-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      font-size: 12px;
+    }
+    
+    .sla-table th {
+      background: #f1f5f9;
+      color: #475569;
+      font-weight: 700;
+      text-align: left;
+      padding: 8px 10px;
+      border: 1px solid #e2e8f0;
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.05em;
+    }
+    
+    .sla-table td {
+      padding: 8px 10px;
+      border: 1px solid #e2e8f0;
+      vertical-align: middle;
+    }
+    
+    .sla-table tr:nth-child(even) {
+      background: #f8fafc;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 9px;
       letter-spacing: 0.05em;
     }
     
     .summary-card {
-      background: linear-gradient(135deg, rgba(13, 148, 136, 0.03), rgba(248, 250, 252, 1));
-      border: 1px solid rgba(13, 148, 136, 0.15);
+      background: linear-gradient(135deg, rgba(13, 148, 136, 0.02), rgba(248, 250, 252, 1));
+      border: 1px solid rgba(13, 148, 136, 0.12);
       border-left: 4px solid #0d9488;
       border-radius: 8px;
-      padding: 20px;
-      font-size: 14.5px;
+      padding: 15px;
+      font-size: 13px;
       color: #334155;
-      line-height: 1.7;
+      line-height: 1.6;
     }
     
     .grid-two-col {
       display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 30px;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
     }
     
     .list-container {
@@ -204,9 +361,9 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
     
     .list-item {
       position: relative;
-      padding-left: 20px;
-      margin-bottom: 12px;
-      font-size: 13.5px;
+      padding-left: 18px;
+      margin-bottom: 8px;
+      font-size: 12.5px;
       color: #475569;
     }
     
@@ -218,43 +375,60 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
       width: 1em;
       margin-left: -1em;
       position: absolute;
-      left: 20px;
+      left: 18px;
     }
     
     .risk-item {
       position: relative;
-      padding-left: 24px;
-      margin-bottom: 12px;
-      font-size: 13.5px;
+      padding-left: 28px;
+      margin-bottom: 8px;
+      font-size: 12.5px;
       color: #9a3412;
       background: #fff7ed;
       border: 1px solid #ffedd5;
       border-radius: 6px;
-      padding: 10px 12px 10px 32px;
+      padding: 8px 10px 8px 28px;
     }
     
     .risk-item::before {
       content: "⚠️";
       position: absolute;
       left: 10px;
-      top: 9px;
-      font-size: 12px;
+      top: 8px;
+      font-size: 11px;
     }
     
     .sources-box {
-      font-size: 12px;
+      font-size: 11px;
       color: #64748b;
       background: #f8fafc;
-      padding: 12px 15px;
+      padding: 10px 12px;
       border-radius: 6px;
       border: 1px solid #e2e8f0;
     }
     
+    .sign-off-block {
+      margin-top: 40px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 50px;
+      font-size: 12px;
+    }
+    
+    .signature-line {
+      border-top: 1.5px solid #cbd5e1;
+      margin-top: 50px;
+      padding-top: 6px;
+      text-align: center;
+      color: #64748b;
+      font-weight: 500;
+    }
+
     .footer {
-      margin-top: 60px;
+      margin-top: 45px;
       border-top: 1px solid #e2e8f0;
-      padding-top: 15px;
-      font-size: 11px;
+      padding-top: 12px;
+      font-size: 10px;
       color: #94a3b8;
       display: flex;
       justify-content: space-between;
@@ -262,20 +436,37 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
     
     @media print {
       body {
-        padding: 20px 30px;
+        padding: 0px;
       }
-      .meta-grid {
+      .brand-header {
+        border-bottom: 2px solid #0d9488 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .info-card {
+        background: #f8fafc !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .sla-table th {
+        background: #f1f5f9 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .sla-table tr:nth-child(even) {
         background: #f8fafc !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
       .summary-card {
-        background: #f4fafb !important;
+        background: #f9fbfb !important;
+        border-left: 4px solid #0d9488 !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
       .risk-item {
         background: #fff7ed !important;
+        border: 1px solid #ffedd5 !important;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
@@ -285,71 +476,154 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
 <body>
   <div class="brand-header">
     <div class="brand-logo">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M13 10V3L4 14h7v7l9-11h-7z" />
       </svg>
       <span>VendorVerse</span>
     </div>
-    <div class="doc-type">Supplier Dossier</div>
+    <div class="doc-type">SLA Audit Ledger</div>
   </div>
   
   <div class="report-title-container">
-    <h1 class="report-title">AI Performance Report</h1>
-    <div class="report-subtitle">Analytical overview of vendor operations and compliance scorecards</div>
+    <h1 class="report-title">SLA Performance Audit Report</h1>
+    <div class="report-subtitle">Official compliance scorecard, operational analytics, and AI risk diagnostics</div>
   </div>
   
-  <div class="meta-grid">
-    <div class="meta-item">
-      <span class="meta-label">Supplier Name</span>
-      <span class="meta-value">${supplier.name}</span>
+  <div class="grid-three-col">
+    <!-- Supplier Profile -->
+    <div class="info-card">
+      <div class="info-card-title">Supplier Dossier</div>
+      <div class="grid-item">
+        <span class="grid-item-label">ID</span>
+        <span class="grid-item-value">${getVal('supplier_id', 'SUP001')}</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Name</span>
+        <span class="grid-item-value">${getVal('name', 'N/A')}</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Location</span>
+        <span class="grid-item-value">${getVal('location', 'N/A')}</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Region</span>
+        <span class="grid-item-value">${getVal('region', 'N/A')}</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Phone</span>
+        <span class="grid-item-value">${getVal('phone', 'N/A')}</span>
+      </div>
     </div>
-    <div class="meta-item">
-      <span class="meta-label">Supplier ID</span>
-      <span class="meta-value">${supplier.supplier_id}</span>
+
+    <!-- Operational Data -->
+    <div class="info-card">
+      <div class="info-card-title">Operations Summary</div>
+      <div class="grid-item">
+        <span class="grid-item-label">Avg Lead Time</span>
+        <span class="grid-item-value">${Number(getVal('avg_lead_time', 0)).toFixed(1)} days</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Avg Shipping Time</span>
+        <span class="grid-item-value">${Number(getVal('avg_shipping_time', 0)).toFixed(1)} days</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Shipping Carriers</span>
+        <span class="grid-item-value" title="${formatList(getVal('shipping_carriers', ''))}">${formatList(getVal('shipping_carriers', 'N/A'))}</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Transport Modes</span>
+        <span class="grid-item-value" title="${formatList(getVal('transportation_modes', ''))}">${formatList(getVal('transportation_modes', 'N/A'))}</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Routes Ingedted</span>
+        <span class="grid-item-value" title="${formatList(getVal('routes', ''))}">${formatList(getVal('routes', 'N/A'))}</span>
+      </div>
     </div>
-    <div class="meta-item">
-      <span class="meta-label">Geographic Region</span>
-      <span class="meta-value">${supplier.region || 'Not Specified'}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-label">Analysis Date</span>
-      <span class="meta-value">${new Date(report.generated_date).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+
+    <!-- Performance Ratings -->
+    <div class="info-card">
+      <div class="info-card-title">Risk & Audit Summary</div>
+      <div class="grid-item">
+        <span class="grid-item-label">Defect Rate</span>
+        <span class="grid-item-value">${Number(getVal('defect_rate', 0)).toFixed(2)}%</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Inspection Pass Rate</span>
+        <span class="grid-item-value">${Number(getVal('inspection_pass_rate', 0)).toFixed(1)}%</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Total SKUs Active</span>
+        <span class="grid-item-value">${getVal('num_skus' as any, 'N/A')}</span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">Overall Performance</span>
+        <span class="grid-item-value">
+          <span class="overall-score-badge" style="background: ${Number(getVal('overall_score', 0)) >= 75 ? 'rgba(16, 185, 129, 0.15); color: #059669;' : 'rgba(239, 68, 68, 0.15); color: #dc2626;'}">
+            ${Number(getVal('overall_score', 0)).toFixed(1)} / 100
+          </span>
+        </span>
+      </div>
+      <div class="grid-item">
+        <span class="grid-item-label">AI Risk Assessment</span>
+        <span class="grid-item-value" style="font-weight: 700; color: ${getVal('risk_level', '') === 'Low' ? '#059669' : (getVal('risk_level', '') === 'Medium' ? '#d97706' : '#dc2626')};">
+          ${getVal('risk_level', 'Unevaluated').toUpperCase()}
+        </span>
+      </div>
     </div>
   </div>
-  
+
+  <!-- SLA Scorecard Table -->
   <div class="section">
-    <h2 class="section-title">Executive Intelligence Summary</h2>
-    <div class="summary-card">
-      ${report.summary_text}
+    <h2 class="section-title">Service Level Agreement (SLA) Monitor Ledger</h2>
+    <table class="sla-table">
+      <thead>
+        <tr>
+          <th>SLA Metric Parameter</th>
+          <th>Current Performance</th>
+          <th>SLA Target</th>
+          <th>SLA Breach Threshold</th>
+          <th>Status</th>
+          <th>Target Deviation</th>
+          <th>Ledger Verification Proof</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${metricsHtml}
+      </tbody>
+    </table>
+  </div>
+  <!-- Data Sources -->
+  <div class="section" style="page-break-inside: avoid;">
+    <h2 class="section-title">Verification Ledger & Audit Trail</h2>
+    <div class="sources-box">
+      This performance scorecard was automatically synthesized and audited by the VendorVerse Intelligence Core. Calculations were validated against historical ledger records and verified upload databases, incorporating data sources from: <strong>${sourcesHtml}</strong>.
     </div>
   </div>
   
-  <div class="grid-two-col">
-    <div class="section">
-      <h2 class="section-title">Key Performance Insights</h2>
-      <ul class="list-container">
-        ${insightsHtml}
-      </ul>
+  <!-- Sign-off Block -->
+  <div class="sign-off-block" style="page-break-inside: avoid;">
+    <div>
+      <p style="font-size: 11px; color: #64748b; line-height: 1.4;">
+        I, the undersigned, hereby attest that this report constitutes a fair and accurate summary of supplier operational metrics and compliance scorecards as of the audit date.
+      </p>
+      <div class="signature-line">
+        VendorVerse Auditor Signature
+      </div>
     </div>
-    
-    <div class="section">
-      <h2 class="section-title">Operational Risk Warnings</h2>
-      <div class="list-container">
-        ${risksHtml || '<div style="font-size: 13.5px; color: #64748b;">No outstanding risk warnings detected.</div>'}
+    <div>
+      <p style="font-size: 11px; color: #64748b; line-height: 1.4;">
+        Representing the supplier organization, I acknowledge receipt of this SLA audit scorecard and any associated risk alerts or breach mitigation interventions.
+      </p>
+      <div class="signature-line">
+        Supplier Authorized Representative
       </div>
     </div>
   </div>
   
-  <div class="section" style="margin-top: 15px;">
-    <h2 class="section-title">Verification Auditing & Data Sources</h2>
-    <div class="sources-box">
-      This analysis is synthesised by VendorVerse AI Engine using verification datasets from: <strong>${sourcesHtml}</strong>.
-    </div>
-  </div>
-  
   <div class="footer">
-    <span>© ${new Date().getFullYear()} VendorVerse Inc. All Rights Reserved.</span>
+    <span>Report Generated: ${new Date(report.generated_date).toLocaleString()}</span>
     <span>CONFIDENTIAL / INTERNAL USE ONLY</span>
+    <span>© ${new Date().getFullYear()} VendorVerse Inc.</span>
   </div>
   
   <script>
@@ -411,6 +685,22 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
               <p className="text-muted-foreground">Generating AI report...</p>
               <p className="text-sm text-muted-foreground mt-1">Analyzing performance data</p>
             </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+              <div className="w-12 h-12 rounded-full bg-destructive/15 flex items-center justify-center mb-4 text-destructive">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h4 className="font-semibold text-foreground text-base mb-2">Failed to Generate Report</h4>
+              <p className="text-sm text-muted-foreground max-w-md mb-6">{error}</p>
+              <button
+                onClick={fetchReport}
+                className="btn-primary py-2 px-4 text-xs font-semibold rounded-md"
+              >
+                Retry Generation
+              </button>
+            </div>
           ) : report ? (
             <div className="space-y-6">
               {/* AI Summary */}
@@ -422,45 +712,86 @@ export function ReportModal({ supplier, isOpen, onClose }: ReportModalProps) {
                   <span className="font-semibold text-foreground">AI Analysis Summary</span>
                 </div>
                 <p className="text-muted-foreground leading-relaxed">{report.summary_text}</p>
-              </div>
-
-              {/* Key Insights */}
-              <div>
-                <h4 className="font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  Key Insights
-                </h4>
-                <ul className="space-y-2">
-                  {report.key_insights.map((insight, index) => (
-                    <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary mt-2 flex-shrink-0" />
-                      {insight}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* Risk Flags */}
-              <div>
-                <h4 className="font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  Risk Flags
-                </h4>
-                <ul className="space-y-2">
-                  {report.risk_flags.map((flag, index) => (
-                    <li key={index} className="flex items-start gap-2.5 text-sm text-warning">
-                      <svg className="w-4 h-4 mt-0.5 flex-shrink-0 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="10" strokeWidth={1.5} />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01" />
+                
+                {/* Visual Comparative Graph (Target vs Current) */}
+                {report.metrics && report.metrics.length > 0 && (
+                  <div className="mt-6 p-4 border border-border/80 rounded-lg bg-card/50 space-y-4">
+                    <h5 className="font-semibold text-xs text-foreground flex items-center gap-2 uppercase tracking-wider">
+                      <svg className="w-3.5 h-3.5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
-                      {flag}
-                    </li>
-                  ))}
-                </ul>
+                      SLA Performance Index (Target vs Current)
+                    </h5>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {report.metrics.map((m) => {
+                        // Normalize calculations for the visual chart
+                        const maxVal = Math.max(m.target, m.current, m.threshold, 10) || 100;
+                        const targetPercent = Math.max(5, Math.min(100, (m.target / maxVal) * 100));
+                        const currentPercent = Math.max(5, Math.min(100, (m.current / maxVal) * 100));
+                        
+                        return (
+                          <div key={m.metric} className="space-y-2 border border-border/40 p-3 rounded bg-muted/20">
+                            <div className="flex justify-between text-[11px] font-medium text-foreground">
+                              <span className="capitalize">{m.metric.replace('_', ' ')}</span>
+                              <span className="text-muted-foreground font-semibold">{m.current}{m.unit} vs {m.target}{m.unit}</span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {/* SLA Target / Before */}
+                              <div className="flex items-center gap-2 text-[9px]">
+                                <span className="w-12 text-muted-foreground text-left">SLA Target:</span>
+                                <div className="flex-1 h-1.5 bg-muted rounded overflow-hidden">
+                                  <div className="bg-slate-400 h-full rounded" style={{ width: `${targetPercent}%` }} />
+                                </div>
+                              </div>
+                              {/* Actual Achievement / After */}
+                              <div className="flex items-center gap-2 text-[9px]">
+                                <span className="w-12 text-muted-foreground text-left">Actual:</span>
+                                <div className="flex-1 h-1.5 bg-muted rounded overflow-hidden">
+                                  <div className={`h-full rounded ${
+                                    m.status === 'compliant' ? 'bg-green-500' :
+                                    m.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'
+                                  }`} style={{ width: `${currentPercent}%` }} />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Pointwise Agreement Lack Summary */}
+                {report.metrics && (
+                  <div className="mt-4 space-y-2">
+                    <h5 className="font-semibold text-xs text-foreground flex items-center gap-2 uppercase tracking-wider">
+                      <svg className="w-3.5 h-3.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      SLA Agreement Lacks & Deviation Summary
+                    </h5>
+                    <ul className="space-y-2 bg-amber-500/5 border border-amber-500/20 p-3.5 rounded-lg">
+                      {report.metrics.filter(m => m.status !== 'compliant').map((m) => {
+                        const gap = Math.abs(m.target - m.current);
+                        const label = m.metric.replace('_', ' ');
+                        return (
+                          <li key={m.metric} className="text-xs flex items-start gap-2 text-amber-800 dark:text-amber-400">
+                            <span className="mt-1.5 flex h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                            <span>
+                              <strong>{label.toUpperCase()} shortfall:</strong> The actual performance is {m.current}{m.unit}, deviating from the SLA Target ({m.target}{m.unit}) by {m.deviation_percent}% (net gap of {gap.toFixed(1)}{m.unit}). Status: <span className="font-bold uppercase text-[10px] bg-amber-500/10 px-1 rounded">{m.status}</span>.
+                            </span>
+                          </li>
+                        );
+                      })}
+                      {report.metrics.filter(m => m.status !== 'compliant').length === 0 && (
+                        <li className="text-xs text-green-600 dark:text-green-400 flex items-center gap-2">
+                          <span className="mt-0.5 flex h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" />
+                          <span>All metrics comply with the Service Level Agreement (no agreement lacks identified).</span>
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                )}
               </div>
 
               {/* Data Sources */}

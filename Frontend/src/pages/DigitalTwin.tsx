@@ -31,6 +31,8 @@ export default function DigitalTwin() {
   const [incidents, setIncidents] = useState<any[]>([]);
   const [selectedIncId, setSelectedIncId] = useState<string>("");
   const [duration, setDuration] = useState<3 | 7 | 14 | 30>(14);
+  const [liveMetrics, setLiveMetrics] = useState<SimulationMetrics | null>(null);
+  const [loadingSim, setLoadingSim] = useState<boolean>(false);
 
   // Fetch incidents
   const fetchIncidents = async () => {
@@ -48,6 +50,29 @@ export default function DigitalTwin() {
   useEffect(() => {
     fetchIncidents();
   }, []);
+
+  useEffect(() => {
+    if (selectedIncId) {
+      const fetchSimulation = async () => {
+        setLoadingSim(true);
+        try {
+          const res = await api.post('/incidents/simulate-impact', {
+            incident_id: selectedIncId,
+            duration_days: duration
+          });
+          if (res.data && res.data.success) {
+            setLiveMetrics(res.data.metrics);
+          }
+        } catch (err) {
+          console.error("Failed to fetch cascading impact simulation:", err);
+          setLiveMetrics(null);
+        } finally {
+          setLoadingSim(false);
+        }
+      };
+      fetchSimulation();
+    }
+  }, [selectedIncId, duration]);
 
   const currentIncident = incidents.find(i => i.id === selectedIncId) || {
     type: "Natural Disaster",
@@ -93,7 +118,7 @@ export default function DigitalTwin() {
     }
   };
 
-  const metrics = simData[duration];
+  const metrics = liveMetrics || simData[duration];
 
   const handleExecuteAction = (actionName: string) => {
     toast.success(`Action initiated: ${actionName}`);

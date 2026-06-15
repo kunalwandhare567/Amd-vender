@@ -53,55 +53,138 @@ interface SimpleLineChartProps {
   height?: number;
 }
 
-export function SimpleLineChart({ data, color = 'primary', height = 100 }: SimpleLineChartProps) {
+export function SimpleLineChart({ data, color = 'primary', height = 120 }: SimpleLineChartProps) {
+  if (!data || data.length === 0) return null;
   const max = Math.max(...data.map(d => d.value));
   const min = Math.min(...data.map(d => d.value));
   const range = max - min || 1;
   
-  const getColorClass = () => {
+  const getStrokeColorClass = () => {
     switch (color) {
-      case 'success':
-        return 'stroke-success';
-      case 'warning':
-        return 'stroke-warning';
-      case 'destructive':
-        return 'stroke-destructive';
-      default:
-        return 'stroke-primary';
+      case 'success': return 'stroke-success';
+      case 'warning': return 'stroke-warning';
+      case 'destructive': return 'stroke-destructive';
+      default: return 'stroke-primary';
     }
   };
 
+  const getFillColorClass = () => {
+    switch (color) {
+      case 'success': return 'fill-success';
+      case 'warning': return 'fill-warning';
+      case 'destructive': return 'fill-destructive';
+      default: return 'fill-primary';
+    }
+  };
+
+  // Fixed coordinate box dimensions inside the SVG
+  const chartWidth = 430;
+  const chartHeight = 75;
+  const startX = 45;
+  const startY = 15;
+
   const points = data.map((point, index) => {
-    const x = (index / (data.length - 1)) * 100;
-    const y = 100 - ((point.value - min) / range) * 80 - 10;
+    const x = startX + (index / (data.length - 1)) * chartWidth;
+    const y = startY + chartHeight - ((point.value - min) / range) * chartHeight;
     return `${x},${y}`;
   }).join(' ');
 
   return (
-    <div style={{ height }}>
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
-        <polyline
-          points={points}
-          fill="none"
-          className={`${getColorClass()} transition-all duration-500`}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        {data.map((point, index) => {
-          const x = (index / (data.length - 1)) * 100;
-          const y = 100 - ((point.value - min) / range) * 80 - 10;
-          return (
-            <circle
-              key={index}
-              cx={x}
-              cy={y}
-              r="2"
-              className={`fill-primary ${getColorClass()}`}
-            />
-          );
-        })}
-      </svg>
+    <div className="w-full flex flex-col pt-4" style={{ height: height + 40 }}>
+      <div className="flex-1 w-full relative">
+        <svg viewBox="0 0 520 120" className="w-full h-full overflow-visible">
+          {/* Y-Axis Gridlines & Labels */}
+          {[0, 0.5, 1].map((ratio) => {
+            const y = startY + chartHeight - ratio * chartHeight;
+            const val = min + ratio * range;
+            return (
+              <g key={ratio} className="opacity-30">
+                <line
+                  x1={startX}
+                  y1={y}
+                  x2={startX + chartWidth}
+                  y2={y}
+                  className="stroke-muted"
+                  strokeWidth="0.5"
+                  strokeDasharray="2,2"
+                />
+                <text
+                  x={startX - 8}
+                  y={y + 3}
+                  textAnchor="end"
+                  className="fill-muted-foreground font-medium text-[9px] select-none"
+                >
+                  {val.toFixed(1)}%
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Solid X and Y Axis border lines */}
+          <line
+            x1={startX}
+            y1={startY}
+            x2={startX}
+            y2={startY + chartHeight}
+            className="stroke-muted"
+            strokeWidth="1.5"
+          />
+          <line
+            x1={startX}
+            y1={startY + chartHeight}
+            x2={startX + chartWidth}
+            y2={startY + chartHeight}
+            className="stroke-muted"
+            strokeWidth="1.5"
+          />
+
+          {/* Polyline Path */}
+          <polyline
+            fill="none"
+            strokeWidth="3"
+            points={points}
+            className={`${getStrokeColorClass()} transition-all duration-500`}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          {/* Data Points */}
+          {data.map((point, index) => {
+            const x = startX + (index / (data.length - 1)) * chartWidth;
+            const y = startY + chartHeight - ((point.value - min) / range) * chartHeight;
+            return (
+              <g key={index}>
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="4.5"
+                  className={`${getFillColorClass()} stroke-background transition-all hover:r-6 cursor-pointer`}
+                  strokeWidth="2"
+                />
+                {/* Value Label */}
+                <text
+                  x={x}
+                  y={y - 9}
+                  textAnchor="middle"
+                  className="fill-foreground font-bold text-[10px] select-none pointer-events-none"
+                >
+                  {point.value.toFixed(1)}%
+                </text>
+                
+                {/* X-Axis month label centered beneath the dot */}
+                <text
+                  x={x}
+                  y={startY + chartHeight + 18}
+                  textAnchor="middle"
+                  className="fill-muted-foreground text-[10px] font-semibold select-none pointer-events-none"
+                >
+                  {point.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
     </div>
   );
 }

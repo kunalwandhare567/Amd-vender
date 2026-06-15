@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import os
 import json
+from analytics_engine import create_snapshot  # SQL-First: snapshot on SLA sync
 
 router = APIRouter(prefix="/api/sla", tags=["sla"])
 
@@ -114,6 +115,13 @@ Output ONLY valid JSON, no markdown formatting."""
             saved_metrics.append(metric)
             
         session.commit()
+        # SQL-First: snapshot every supplier whose SLA metrics were just recalculated
+        try:
+            for s in suppliers:
+                create_snapshot(session, s, trigger_event="sla_sync")
+            session.commit()
+        except Exception as snap_err:
+            print(f"[AnalyticsEngine] SLA snapshot failed (non-fatal): {snap_err}")
         return {"metrics": saved_metrics}
 
     except Exception as e:
@@ -197,6 +205,13 @@ Output ONLY valid JSON, no markdown formatting."""
                 saved_metrics.append(metric_up)
             
             session.commit()
+            # SQL-First: snapshot after rule-based SLA fallback calculation
+            try:
+                for s in suppliers:
+                    create_snapshot(session, s, trigger_event="sla_sync_fallback")
+                session.commit()
+            except Exception as snap_err:
+                print(f"[AnalyticsEngine] SLA fallback snapshot failed (non-fatal): {snap_err}")
             return {"metrics": saved_metrics}
         except Exception as fallback_err:
             print(f"Fallback SLA calculation failed: {fallback_err}")

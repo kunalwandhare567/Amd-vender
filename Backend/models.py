@@ -259,4 +259,72 @@ class SupplierShipment(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SQL-FIRST AI ARCHITECTURE – Layer 3/4/6 Tables
+# These are ADDITIVE tables. They do NOT alter any existing model.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SupplierMetricsSnapshot(SQLModel, table=True):
+    """
+    Time-series history of per-supplier composite scores.
+    Created ONLY on data-mutation events (QC upload, SLA sync, audit, RFQ).
+    SQL calculates every value — the LLM is never invoked here.
+    """
+    __tablename__ = "supplier_metrics_snapshot"
+
+    snapshot_id: Optional[int] = Field(default=None, primary_key=True)
+    supplier_id: str = Field(index=True, foreign_key="supplier.supplier_id")
+
+    # Sub-domain scores (0–100, SQL-calculated)
+    inventory_score: float       # based on avg_stock_level, avg_availability
+    compliance_score: float      # based on inspection_pass_rate
+    sla_score: float             # based on delivery_time, quality SLA metrics
+    cost_score: float            # based on avg_manufacturing_cost vs revenue
+    performance_score: float     # based on OTD %, defect_rate
+
+    # Composite
+    overall_score: float
+
+    # Trigger label — which mutation created this snapshot
+    trigger_event: str = Field(default="manual")  # qc_upload | sla_sync | inspection | rfq | manual
+
+    snapshot_date: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SupplierAnalytics(SQLModel, table=True):
+    """
+    Single-row per supplier — stores only the LATEST scores.
+    Dashboard reads this instead of scanning the full snapshot history.
+    """
+    __tablename__ = "supplier_analytics"
+
+    supplier_id: str = Field(primary_key=True, foreign_key="supplier.supplier_id")
+    latest_inventory_score: float = Field(default=0.0)
+    latest_compliance_score: float = Field(default=0.0)
+    latest_sla_score: float = Field(default=0.0)
+    latest_cost_score: float = Field(default=0.0)
+    latest_performance_score: float = Field(default=0.0)
+    latest_overall_score: float = Field(default=0.0)
+    last_updated: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SupplierAIMemory(SQLModel, table=True):
+    """
+    Compressed rolling AI knowledge per supplier.
+    LLM reads THIS (not raw records) when generating executive summaries.
+    Updated only when delta > threshold, not on every request.
+    """
+    __tablename__ = "supplier_ai_memory"
+
+    memory_id: Optional[int] = Field(default=None, primary_key=True)
+    supplier_id: str = Field(index=True, foreign_key="supplier.supplier_id")
+    report_type: str = Field(default="Performance")   # Performance | Executive | Risk
+    summary: str                                       # Rolling natural-language summary
+    recommendations: str = Field(default="[]")         # JSON list of action items
+    risk_level: str = Field(default="Medium")          # Low | Medium | High | Critical
+    overall_delta: float = Field(default=0.0)          # Score change since last memory update
+    change_type: str = Field(default="UNCHANGED")      # IMPROVED | UNCHANGED | DECLINED | CRITICAL_DECLINE
+    version: int = Field(default=1)
+    context_version: str = Field(default="v1")         # Bump this when prompt logic changes
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 

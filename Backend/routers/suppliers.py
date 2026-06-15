@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 import os
 import uuid
+from analytics_engine import create_snapshot  # SQL-First: trigger snapshot on mutation
 
 
 router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
@@ -904,6 +905,14 @@ Output ONLY valid JSON, no markdown."""
     session.commit()
     session.refresh(supplier)
 
+    # ── 4. SQL-First: create initial performance snapshot ────────────
+    # (additive side-effect — no existing logic changed)
+    try:
+        create_snapshot(session, supplier, trigger_event="supplier_added")
+        session.commit()
+    except Exception as snap_err:
+        print(f"[AnalyticsEngine] snapshot failed (non-fatal): {snap_err}")
+
     return {"success": True, "data": supplier}
 
 
@@ -1111,6 +1120,13 @@ def update_inspection_rate(
         
     session.commit()
     session.refresh(supplier)
+
+    # SQL-First: record performance snapshot on inspection data change
+    try:
+        create_snapshot(session, supplier, trigger_event="inspection")
+        session.commit()
+    except Exception as snap_err:
+        print(f"[AnalyticsEngine] snapshot failed (non-fatal): {snap_err}")
     
     return {
         "success": True,
@@ -1283,6 +1299,13 @@ async def upload_qc_log(
     session.add(supplier)
     session.commit()
     session.refresh(supplier)
+
+    # SQL-First: record performance snapshot after QC/audit upload
+    try:
+        create_snapshot(session, supplier, trigger_event="qc_upload")
+        session.commit()
+    except Exception as snap_err:
+        print(f"[AnalyticsEngine] snapshot failed (non-fatal): {snap_err}")
     
     return {
         "success": True,

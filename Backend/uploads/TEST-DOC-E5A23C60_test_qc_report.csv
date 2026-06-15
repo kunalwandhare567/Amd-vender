@@ -1,0 +1,4 @@
+product_type,sku,price,availability,number_sold,revenue,customer_demographics,stock_level,lead_time,order_quantity,shipping_time,shipping_cost,shipping_carrier,production_volume,manufacturing_lead_time,manufacturing_cost,defect_rate,transportation_mode,route,inspection_result
+cosmetics,SKU-001,50.0,80.0,500,25000.0,Female,60.0,15.0,500,5.0,6.0,Carrier A,800,12.0,30.0,1.25,Road,Route A,Pass
+cosmetics,SKU-002,50.0,80.0,500,25000.0,Female,60.0,15.0,500,5.0,6.0,Carrier A,800,12.0,30.0,1.25,Road,Route A,Pass
+cosmetics,SKU-003,50.0,80.0,500,25000.0,Female,60.0,15.0,500,5.0,6.0,Carrier A,800,12.0,30.0,1.25,Road,Route A,Fail

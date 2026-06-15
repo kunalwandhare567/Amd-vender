@@ -1,0 +1,21 @@
+# VendorVerse Goods Receipt Inspection Report (GRIR) & Supplier Performance Sheet
+# Target Supplier: SUP001 (Supplier 1)
+# Date of Evaluation: 2026-06-15
+# Evaluated By: Quality Control & Logistics Team
+
+product_type,sku,price,availability,number_sold,revenue,customer_demographics,stock_level,lead_time,order_quantity,shipping_time,shipping_cost,shipping_carrier,production_volume,manufacturing_lead_time,manufacturing_cost,defect_rate,transportation_mode,route,inspection_result
+cosmetics,SKU-001,45.0,95,650,29250.0,All,120,9.0,650,2.5,4.5,Carrier A,1000,10.0,28.0,0.50,Road,Route A,Pass
+haircare,SKU-002,25.0,92,400,10000.0,Female,90,11.0,400,3.0,3.0,Carrier B,600,8.0,15.0,1.20,Rail,Route B,Pass
+skincare,SKU-003,75.0,96,350,26250.0,Female,80,10.0,350,2.0,5.5,Carrier A,500,12.0,50.0,0.80,Road,Route A,Pass
+cosmetics,SKU-004,15.0,90,1200,18000.0,All,300,12.0,1200,3.5,2.0,Carrier C,1500,6.0,8.0,1.50,Sea,Route C,Fail
+skincare,SKU-005,90.0,94,200,18000.0,Male,50,9.5,200,2.0,6.0,Carrier A,300,15.0,60.0,0.40,Road,Route A,Pass
+haircare,SKU-006,30.0,91,850,25500.0,All,150,11.5,850,3.2,3.5,Carrier B,1000,8.0,18.0,1.10,Rail,Route B,Pass
+cosmetics,SKU-007,55.0,93,500,27500.0,Female,110,10.0,500,2.8,4.8,Carrier A,800,10.0,35.0,0.90,Road,Route A,Pass
+skincare,SKU-008,60.0,95,300,18000.0,Female,70,10.5,300,2.5,5.0,Carrier A,500,12.0,40.0,0.75,Road,Route A,Pass
+haircare,SKU-009,20.0,90,1000,20000.0,All,200,12.0,1000,3.5,2.5,Carrier C,1500,6.0,12.0,1.80,Sea,Route C,Fail
+cosmetics,SKU-010,40.0,94,700,28000.0,All,140,9.0,700,2.2,4.0,Carrier A,1000,10.0,25.0,0.60,Road,Route A,Pass
+skincare,SKU-011,80.0,96,250,20000.0,Female,60,10.0,250,2.0,5.8,Carrier A,400,12.0,52.0,0.85,Road,Route A,Pass
+haircare,SKU-012,35.0,92,600,21000.0,All,130,11.0,600,3.0,3.2,Carrier B,800,8.0,20.0,1.15,Rail,Route B,Pass
+cosmetics,SKU-013,48.0,95,450,21600.0,Female,100,9.5,450,2.4,4.5,Carrier A,750,10.0,30.0,0.70,Road,Route A,Pass
+skincare,SKU-014,70.0,94,320,22400.0,Male,75,10.5,320,2.5,5.2,Carrier A,500,12.0,45.0,0.80,Road,Route A,Pass
+haircare,SKU-015,28.0,93,900,25200.0,All,180,11.0,900,3.0,3.0,Carrier B,1200,8.0,16.0,1.05,Rail,Route B,Pass
